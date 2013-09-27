@@ -1,0 +1,6 @@
+Copyright (c) 2013 PlayBlack.
+All rights reserved.
+
+This file is copyright of PlayBlack. It is open Source and
+free to use. It is licensed under the two-clause BSD License.
+A copy of this license has been included with the source and jar.
