@@ -1,7 +1,8 @@
-package net.playblack.pbdataaccess;
+package net.playblack.pbdbapi.config;
 
 import java.io.File;
 import java.util.logging.Level;
+import net.playblack.pbdbapi.Database;
 
 import net.visualillusionsent.utils.PropertiesFile;
 
@@ -18,7 +19,7 @@ public class DatabaseConfiguration {
         File test = new File(path);
 
         if (!test.exists()) {
-            PBDataAccess.logger().log(Level.INFO, "Could not find the database configuration at " + path + ", creating default.");
+            Database.logger().log(Level.INFO, "Could not find the database configuration at " + path + ", creating default.");
         }
         this.cfg = new PropertiesFile(path);
         verifyConfig();
@@ -37,6 +38,7 @@ public class DatabaseConfiguration {
 
     /** Creates the default configuration */
     private void verifyConfig() {
+        cfg.getString("data-source", "xml");
         cfg.getString("name", "minecraft");
         cfg.getString("host", "localhost");
         cfg.getString("username", "admin");
@@ -44,6 +46,15 @@ public class DatabaseConfiguration {
         cfg.getInt("port", 3306);
         cfg.getInt("maxConnections", 5);
         cfg.save();
+    }
+
+    /**
+     * Get datasource type
+     *
+     * @return datasource type
+     */
+    public String getDatasourceType() {
+        return cfg.getString("data-source", "xml");
     }
 
     /**

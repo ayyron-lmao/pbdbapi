@@ -1,4 +1,4 @@
-package net.playblack.pbdataaccess;
+package net.playblack.pbdbapi;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
@@ -9,9 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
-import net.playblack.pbdataaccess.exceptions.DatabaseAccessException;
-import net.playblack.pbdataaccess.exceptions.DatabaseTableInconsistencyException;
-import net.playblack.pbdataaccess.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
+import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
+import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
 
 public abstract class DataAccess {
 
@@ -98,7 +98,7 @@ public abstract class DataAccess {
                 fieldMap.put(colInfo, field.get(this));
             }
             catch (IllegalArgumentException e) {
-                PBDataAccess.logger().log(Level.WARNING, e.getMessage(), e);
+                Database.logger().log(Level.WARNING, e.getMessage(), e);
             }
             catch (IllegalAccessException e) {
                 isInconsistent = true;
@@ -225,7 +225,7 @@ public abstract class DataAccess {
             return false;
         }
         catch (DatabaseTableInconsistencyException e) {
-            PBDataAccess.logger().log(Level.SEVERE, "Could not finish column name lookup in database for " + tableName, e);
+            Database.logger().log(Level.SEVERE, "Could not finish column name lookup in database for " + tableName, e);
             return false;
         }
     }
@@ -236,7 +236,7 @@ public abstract class DataAccess {
             Database.get().updateSchema(this);
         }
         catch (DatabaseWriteException e) {
-            PBDataAccess.logger().log(Level.WARNING, e.getMessage(), e);
+            Database.logger().log(Level.WARNING, e.getMessage(), e);
         }
     }
 

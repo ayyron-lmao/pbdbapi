@@ -1,12 +1,12 @@
-package net.playblack.pbdataaccess.mysql;
+package net.playblack.pbdbapi.mysql;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.LinkedList;
 import java.util.logging.Level;
-import net.playblack.pbdataaccess.DatabaseConfiguration;
-import net.playblack.pbdataaccess.PBDataAccess;
+import net.playblack.pbdbapi.Database;
+import net.playblack.pbdbapi.config.DatabaseConfiguration;
 
 
 /**
@@ -23,21 +23,21 @@ public class MySQLConnectionPool {
 
     public MySQLConnectionPool() {
         // Only establish the data and connections of the configuration is valid
-        if (!PBDataAccess.get().getDatabaseType().equalsIgnoreCase("mysql")) {
+        if (!Database.getDatabaseConfig().getDatasourceType().equalsIgnoreCase("mysql")) {
             return;
         }
-        config = PBDataAccess.get().getDatabaseConfig();
+        config = Database.getDatabaseConfig();
         connectionPool = new LinkedList<Connection>();
         this.initializeConnectionPool();
     }
 
     /** Creates the connection pool. */
     private void initializeConnectionPool() {
-        PBDataAccess.logger().log(Level.INFO, "Creating MySQL Connection pool.");
+        Database.logger().log(Level.INFO, "Creating MySQL Connection pool.");
         while (!this.isConnectionPoolFull()) {
             this.addNewConnectionToPool();
         }
-        PBDataAccess.logger().log(Level.INFO, "Finished creating MySQL Connection pool.");
+        Database.logger().log(Level.INFO, "Finished creating MySQL Connection pool.");
     }
 
     /**
@@ -72,16 +72,16 @@ public class MySQLConnectionPool {
             }
         }
         catch (SQLException sqle) {
-            PBDataAccess.logger().log(Level.WARNING, "SQLException Adding Connection to MySQL Pool.", sqle);
+            Database.logger().log(Level.WARNING, "SQLException Adding Connection to MySQL Pool.", sqle);
         }
         catch (ClassNotFoundException cnfe) {
-            PBDataAccess.logger().log(Level.WARNING, "ClassNotFoundException Adding Connection to MySQL Pool.", cnfe);
+            Database.logger().log(Level.WARNING, "ClassNotFoundException Adding Connection to MySQL Pool.", cnfe);
         }
         catch (InstantiationException ie) {
-            PBDataAccess.logger().log(Level.WARNING, "InstantiationException Adding Connection to MySQL Pool.", ie);
+            Database.logger().log(Level.WARNING, "InstantiationException Adding Connection to MySQL Pool.", ie);
         }
         catch (IllegalAccessException iae) {
-            PBDataAccess.logger().log(Level.WARNING, "IllegalAccessException Adding Connection to MySQL Pool.", iae);
+            Database.logger().log(Level.WARNING, "IllegalAccessException Adding Connection to MySQL Pool.", iae);
         }
     }
 
@@ -95,7 +95,7 @@ public class MySQLConnectionPool {
     public synchronized Connection getConnectionFromPool() {
         if (this.isConnectionPoolEmpty()) {
             this.addNewConnectionToPool();
-            PBDataAccess.logger().log(Level.WARNING, "Adding new connection to MySQL connection " + "pool. Why are you running out of connections?");
+            Database.logger().log(Level.WARNING, "Adding new connection to MySQL connection " + "pool. Why are you running out of connections?");
         }
 
         return connectionPool.removeFirst();
@@ -116,7 +116,7 @@ public class MySQLConnectionPool {
                 connection.close();
             }
             catch (SQLException sqle) {
-                PBDataAccess.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
+                Database.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
             }
         }
     }
@@ -128,7 +128,7 @@ public class MySQLConnectionPool {
                 conn.close();
             }
             catch (SQLException sqle) {
-                PBDataAccess.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
+                Database.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
             }
         }
         connectionPool = null;

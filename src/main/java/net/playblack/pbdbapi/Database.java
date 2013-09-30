@@ -1,15 +1,17 @@
-package net.playblack.pbdataaccess;
+package net.playblack.pbdbapi;
 
+import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.logging.Level;
-
-import net.playblack.pbdataaccess.exceptions.DatabaseException;
-import net.playblack.pbdataaccess.exceptions.DatabaseReadException;
-import net.playblack.pbdataaccess.exceptions.DatabaseWriteException;
-import net.playblack.pbdataaccess.mysql.MySQLDatabase;
-import net.playblack.pbdataaccess.sqlite.SQLiteDatabase;
-import net.playblack.pbdataaccess.xml.XmlDatabase;
+import java.util.logging.Logger;
+import net.playblack.pbdbapi.config.DatabaseConfiguration;
+import net.playblack.pbdbapi.exceptions.DatabaseException;
+import net.playblack.pbdbapi.exceptions.DatabaseReadException;
+import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.mysql.MySQLDatabase;
+import net.playblack.pbdbapi.sqlite.SQLiteDatabase;
+import net.playblack.pbdbapi.xml.XmlDatabase;
 
 /**
  * A database representation, used to store any kind of data
@@ -48,15 +50,40 @@ public abstract class Database {
         }
     }
 
+    private static Logger logger = Logger.getAnonymousLogger();
+    private static DatabaseConfiguration config = new DatabaseConfiguration("config" + File.separatorChar + "db.cfg");
+
     public static Database get() {
-        Database ret = Database.Type.getDatabaseFromType(PBDataAccess.get().getDatabaseType());
+        Database ret = Database.Type.getDatabaseFromType(config.getDatasourceType());
         if (ret != null) {
             return ret;
         }
         else {
-            PBDataAccess.logger().log(Level.WARNING, "Database type " + PBDataAccess.get().getDatabaseType() + " is not available, falling back to XML! Fix your server.cfg");
+            logger().log(Level.WARNING, "Database type " + config.getDatasourceType() + " is not available, falling back to XML! Fix your server.cfg");
             return XmlDatabase.getInstance();
         }
+    }
+
+    /**
+     * Gets the { @link Logger } for the PBDataAccess Library.
+     * @return { @link Logger }
+     */
+    public static Logger logger() {
+        return Database.logger;
+    }
+
+    /**
+     * Sets the { @link Logger } for the PBDatabaseAPI Library.
+     * @param logger The { @link Logger } to set for the PBDatabaseAPI Library to use.
+     * @return Returns the singleton for convenience.
+     */
+    public Database setLogger(Logger logger) {
+        Database.logger = logger != null ? logger : logger;
+        return Database.get();
+    }
+    
+    public static DatabaseConfiguration getDatabaseConfig() {
+        return config;
     }
 
     /**

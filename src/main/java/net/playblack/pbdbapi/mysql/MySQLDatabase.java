@@ -1,4 +1,4 @@
-package net.playblack.pbdataaccess.mysql;
+package net.playblack.pbdbapi.mysql;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -14,15 +14,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import net.playblack.pbdataaccess.Column;
-
-import net.playblack.pbdataaccess.DataAccess;
-import net.playblack.pbdataaccess.Database;
-import net.playblack.pbdataaccess.PBDataAccess;
-import net.playblack.pbdataaccess.exceptions.DatabaseAccessException;
-import net.playblack.pbdataaccess.exceptions.DatabaseReadException;
-import net.playblack.pbdataaccess.exceptions.DatabaseTableInconsistencyException;
-import net.playblack.pbdataaccess.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.Column;
+import net.playblack.pbdbapi.DataAccess;
+import net.playblack.pbdbapi.Database;
+import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
+import net.playblack.pbdbapi.exceptions.DatabaseReadException;
+import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
+import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
 
 /** @author Somners */
 public class MySQLDatabase extends Database {
@@ -92,10 +90,10 @@ public class MySQLDatabase extends Database {
             }
         }
         catch (SQLException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            PBDataAccess.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
             this.closePS(ps);
@@ -137,10 +135,10 @@ public class MySQLDatabase extends Database {
             }
         }
         catch (SQLException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            PBDataAccess.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         catch (DatabaseReadException ex) {
             Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
@@ -153,7 +151,7 @@ public class MySQLDatabase extends Database {
                 pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
-                PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+                Database.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
     }
@@ -173,10 +171,10 @@ public class MySQLDatabase extends Database {
 
         }
         catch (DatabaseReadException dre) {
-            PBDataAccess.logger().log(Level.WARNING, dre.getMessage(), dre);
+            Database.logger().log(Level.WARNING, dre.getMessage(), dre);
         }
         catch (SQLException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         finally {
             try {
@@ -186,7 +184,7 @@ public class MySQLDatabase extends Database {
                 pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
-                PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+                Database.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
     }
@@ -215,13 +213,13 @@ public class MySQLDatabase extends Database {
             }
         }
         catch (DatabaseReadException dre) {
-            PBDataAccess.logger().log(Level.WARNING, dre.getMessage(), dre);
+            Database.logger().log(Level.WARNING, dre.getMessage(), dre);
         }
         catch (SQLException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            PBDataAccess.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
             try {
@@ -231,14 +229,14 @@ public class MySQLDatabase extends Database {
                 pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
-                PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+                Database.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
         try {
             dataset.load(dataSet);
         }
         catch (DatabaseAccessException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
     }
 
@@ -269,13 +267,13 @@ public class MySQLDatabase extends Database {
 
         }
         catch (DatabaseReadException dre) {
-            PBDataAccess.logger().log(Level.WARNING, dre.getMessage(), dre);
+            Database.logger().log(Level.WARNING, dre.getMessage(), dre);
         }
         catch (SQLException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            PBDataAccess.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
             try {
@@ -285,7 +283,7 @@ public class MySQLDatabase extends Database {
                 pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
-                PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+                Database.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
         try {
@@ -297,7 +295,7 @@ public class MySQLDatabase extends Database {
 
         }
         catch (DatabaseAccessException dae) {
-            PBDataAccess.logger().log(Level.WARNING, dae.getMessage(), dae);
+            Database.logger().log(Level.WARNING, dae.getMessage(), dae);
         }
     }
 
@@ -348,7 +346,7 @@ public class MySQLDatabase extends Database {
             throw new DatabaseWriteException("Error updating MySQL schema: " + sqle.getMessage());
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            PBDataAccess.logger().log(Level.WARNING, "Error updating MySQL schema." + dtie.getMessage(), dtie);
+            Database.logger().log(Level.WARNING, "Error updating MySQL schema." + dtie.getMessage(), dtie);
         }
         finally {
             this.closeRS(rs);
@@ -392,7 +390,7 @@ public class MySQLDatabase extends Database {
             throw new DatabaseWriteException("Error creating MySQL table '" + data.getName() + "'. " + ex.getMessage());
         }
         catch (DatabaseTableInconsistencyException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage() + " Error creating MySQL table '" + data.getName() + "'. ", ex);
+            Database.logger().log(Level.WARNING, ex.getMessage() + " Error creating MySQL table '" + data.getName() + "'. ", ex);
         }
         finally {
             this.closePS(ps);
@@ -537,7 +535,7 @@ public class MySQLDatabase extends Database {
                 }
             }
             catch (SQLException sqle) {
-                PBDataAccess.logger().log(Level.WARNING, "Error closing ResultSet in MySQL database.", sqle);
+                Database.logger().log(Level.WARNING, "Error closing ResultSet in MySQL database.", sqle);
             }
         }
     }
@@ -556,7 +554,7 @@ public class MySQLDatabase extends Database {
                 }
             }
             catch (SQLException sqle) {
-                PBDataAccess.logger().log(Level.WARNING, "Error closing PreparedStatement in MySQL database.", sqle);
+                Database.logger().log(Level.WARNING, "Error closing PreparedStatement in MySQL database.", sqle);
             }
         }
     }
@@ -629,7 +627,7 @@ public class MySQLDatabase extends Database {
             }
         }
         catch (SQLException ex) {
-            PBDataAccess.logger().log(Level.WARNING, ex.getMessage(), ex);
+            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         finally {
             this.closeRS(resultSet);

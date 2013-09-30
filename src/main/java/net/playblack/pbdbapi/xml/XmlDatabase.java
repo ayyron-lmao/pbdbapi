@@ -1,4 +1,4 @@
-package net.playblack.pbdataaccess.xml;
+package net.playblack.pbdbapi.xml;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,15 +10,15 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import net.playblack.pbdataaccess.Column;
-import net.playblack.pbdataaccess.Column.DataType;
+import net.playblack.pbdbapi.Column;
+import net.playblack.pbdbapi.Column.DataType;
 
-import net.playblack.pbdataaccess.DataAccess;
-import net.playblack.pbdataaccess.Database;
-import net.playblack.pbdataaccess.exceptions.DatabaseAccessException;
-import net.playblack.pbdataaccess.exceptions.DatabaseReadException;
-import net.playblack.pbdataaccess.exceptions.DatabaseTableInconsistencyException;
-import net.playblack.pbdataaccess.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.DataAccess;
+import net.playblack.pbdbapi.Database;
+import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
+import net.playblack.pbdbapi.exceptions.DatabaseReadException;
+import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
+import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
 
 import org.jdom2.Content;
 import org.jdom2.Document;

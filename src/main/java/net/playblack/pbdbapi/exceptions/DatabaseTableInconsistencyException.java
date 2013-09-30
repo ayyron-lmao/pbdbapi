@@ -1,4 +1,4 @@
-package net.playblack.pbdataaccess.exceptions;
+package net.playblack.pbdbapi.exceptions;
 
 public class DatabaseTableInconsistencyException extends Exception {
 
