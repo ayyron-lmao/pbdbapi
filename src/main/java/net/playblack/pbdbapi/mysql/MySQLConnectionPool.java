@@ -6,7 +6,8 @@ import java.sql.SQLException;
 import java.util.LinkedList;
 import java.util.logging.Level;
 import net.playblack.pbdbapi.Database;
-import net.playblack.pbdbapi.config.DatabaseConfiguration;
+import net.playblack.pbdbapi.PBDatabaseAPI;
+import net.playblack.pbdbapi.config.ConnectionConfiguration;
 
 
 /**
@@ -18,26 +19,26 @@ import net.playblack.pbdbapi.config.DatabaseConfiguration;
  */
 public class MySQLConnectionPool {
 
-    private DatabaseConfiguration config;
+    private ConnectionConfiguration config;
     private LinkedList<Connection> connectionPool;
 
     public MySQLConnectionPool() {
         // Only establish the data and connections of the configuration is valid
-        if (!Database.getDatabaseConfig().getDatasourceType().equalsIgnoreCase("mysql")) {
+        if (!PBDatabaseAPI.get().getDatabaseConfig().getDatasourceType().equalsIgnoreCase("mysql")) {
             return;
         }
-        config = Database.getDatabaseConfig();
+        config = PBDatabaseAPI.get().getConnectionConfig();
         connectionPool = new LinkedList<Connection>();
         this.initializeConnectionPool();
     }
 
     /** Creates the connection pool. */
     private void initializeConnectionPool() {
-        Database.logger().log(Level.INFO, "Creating MySQL Connection pool.");
+        PBDatabaseAPI.logger().log(Level.INFO, "Creating MySQL Connection pool.");
         while (!this.isConnectionPoolFull()) {
             this.addNewConnectionToPool();
         }
-        Database.logger().log(Level.INFO, "Finished creating MySQL Connection pool.");
+        PBDatabaseAPI.logger().log(Level.INFO, "Finished creating MySQL Connection pool.");
     }
 
     /**
@@ -72,16 +73,16 @@ public class MySQLConnectionPool {
             }
         }
         catch (SQLException sqle) {
-            Database.logger().log(Level.WARNING, "SQLException Adding Connection to MySQL Pool.", sqle);
+            PBDatabaseAPI.logger().log(Level.WARNING, "SQLException Adding Connection to MySQL Pool.", sqle);
         }
         catch (ClassNotFoundException cnfe) {
-            Database.logger().log(Level.WARNING, "ClassNotFoundException Adding Connection to MySQL Pool.", cnfe);
+            PBDatabaseAPI.logger().log(Level.WARNING, "ClassNotFoundException Adding Connection to MySQL Pool.", cnfe);
         }
         catch (InstantiationException ie) {
-            Database.logger().log(Level.WARNING, "InstantiationException Adding Connection to MySQL Pool.", ie);
+            PBDatabaseAPI.logger().log(Level.WARNING, "InstantiationException Adding Connection to MySQL Pool.", ie);
         }
         catch (IllegalAccessException iae) {
-            Database.logger().log(Level.WARNING, "IllegalAccessException Adding Connection to MySQL Pool.", iae);
+            PBDatabaseAPI.logger().log(Level.WARNING, "IllegalAccessException Adding Connection to MySQL Pool.", iae);
         }
     }
 
@@ -95,7 +96,7 @@ public class MySQLConnectionPool {
     public synchronized Connection getConnectionFromPool() {
         if (this.isConnectionPoolEmpty()) {
             this.addNewConnectionToPool();
-            Database.logger().log(Level.WARNING, "Adding new connection to MySQL connection " + "pool. Why are you running out of connections?");
+            PBDatabaseAPI.logger().log(Level.WARNING, "Adding new connection to MySQL connection " + "pool. Why are you running out of connections?");
         }
 
         return connectionPool.removeFirst();
@@ -116,7 +117,7 @@ public class MySQLConnectionPool {
                 connection.close();
             }
             catch (SQLException sqle) {
-                Database.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
+                PBDatabaseAPI.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
             }
         }
     }
@@ -128,7 +129,7 @@ public class MySQLConnectionPool {
                 conn.close();
             }
             catch (SQLException sqle) {
-                Database.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
+                PBDatabaseAPI.logger().log(Level.WARNING, "SQLException closing MySQL Connection.", sqle);
             }
         }
         connectionPool = null;

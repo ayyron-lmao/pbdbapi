@@ -98,7 +98,7 @@ public abstract class DataAccess {
                 fieldMap.put(colInfo, field.get(this));
             }
             catch (IllegalArgumentException e) {
-                Database.logger().log(Level.WARNING, e.getMessage(), e);
+                PBDatabaseAPI.logger().log(Level.WARNING, e.getMessage(), e);
             }
             catch (IllegalAccessException e) {
                 isInconsistent = true;
@@ -225,7 +225,7 @@ public abstract class DataAccess {
             return false;
         }
         catch (DatabaseTableInconsistencyException e) {
-            Database.logger().log(Level.SEVERE, "Could not finish column name lookup in database for " + tableName, e);
+            PBDatabaseAPI.logger().log(Level.SEVERE, "Could not finish column name lookup in database for " + tableName, e);
             return false;
         }
     }
@@ -236,7 +236,7 @@ public abstract class DataAccess {
             Database.get().updateSchema(this);
         }
         catch (DatabaseWriteException e) {
-            Database.logger().log(Level.WARNING, e.getMessage(), e);
+            PBDatabaseAPI.logger().log(Level.WARNING, e.getMessage(), e);
         }
     }
 

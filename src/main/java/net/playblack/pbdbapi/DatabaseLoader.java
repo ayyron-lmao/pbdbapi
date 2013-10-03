@@ -39,7 +39,7 @@ public class DatabaseLoader {
                 loader = new URLClassLoader(new URL[] {file.toURI().toURL()}, Thread.currentThread().getContextClassLoader());
             }
             catch (MalformedURLException ex) {
-                Database.logger().log(Level.WARNING, "Exception while loading database jar", ex);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Exception while loading database jar", ex);
                 return;
             }
             PropertiesFile inf = new PropertiesFile(file.getAbsolutePath(), "Canary.inf");
@@ -54,29 +54,29 @@ public class DatabaseLoader {
                 }
             }
             catch (UtilityException e) {
-                Database.logger().log(Level.WARNING, "Could not find databases mainclass", e);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Could not find databases mainclass", e);
                 return;
             }
             catch (ClassNotFoundException e) {
-                Database.logger().log(Level.WARNING, "Could not find databases mainclass", e);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Could not find databases mainclass", e);
             }
             catch (IllegalAccessException e) {
-                Database.logger().log(Level.WARNING, "Could not create database", e);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Could not create database", e);
             }
             catch (DatabaseException e) {
-                Database.logger().log(Level.WARNING, "Could not add database", e);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Could not add database", e);
             }
             catch (SecurityException e) {
-                Database.logger().log(Level.WARNING, e.getMessage(), e);
+                PBDatabaseAPI.logger().log(Level.WARNING, e.getMessage(), e);
             }
             catch (NoSuchMethodException e) {
-                Database.logger().log(Level.WARNING, "Database does not contain a static getInstance() method!", e);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Database does not contain a static getInstance() method!", e);
             }
             catch (IllegalArgumentException e) {
-                Database.logger().log(Level.WARNING, e.getMessage(), e);
+                PBDatabaseAPI.logger().log(Level.WARNING, e.getMessage(), e);
             }
             catch (InvocationTargetException e) {
-                Database.logger().log(Level.WARNING, e.getMessage(), e);
+                PBDatabaseAPI.logger().log(Level.WARNING, e.getMessage(), e);
             }
         }
     }

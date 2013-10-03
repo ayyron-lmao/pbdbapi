@@ -20,9 +20,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.playblack.pbdbapi.Column;
 import net.playblack.pbdbapi.Column.DataType;
-
 import net.playblack.pbdbapi.DataAccess;
 import net.playblack.pbdbapi.Database;
+import net.playblack.pbdbapi.PBDatabaseAPI;
 import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
@@ -46,12 +46,12 @@ public class SQLiteDatabase extends Database {
         if (!path.exists()) {
             path.mkdirs();
         }
-        database = Database.getDatabaseConfig().getDatabaseName();
+        database = PBDatabaseAPI.get().getConnectionConfig().getDatabaseName();
         try {
             conn = DriverManager.getConnection("jdbc:sqlite:" + database + ".db");
         }
         catch (Exception ex) {
-            Database.logger().log(Level.WARNING, "Failed to create connection to SQLite database", ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, "Failed to create connection to SQLite database", ex);
         }
     }
 
@@ -108,10 +108,10 @@ public class SQLiteDatabase extends Database {
             }
         }
         catch (SQLException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
             closePS(ps);
@@ -160,10 +160,10 @@ public class SQLiteDatabase extends Database {
             ps.execute();
         }
         catch (SQLException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dbtiex) {
-            Database.logger().log(Level.WARNING, dbtiex.getMessage(), dbtiex);
+            PBDatabaseAPI.logger().log(Level.WARNING, dbtiex.getMessage(), dbtiex);
         }
         finally {
             closePS(ps);
@@ -189,7 +189,7 @@ public class SQLiteDatabase extends Database {
             ps.execute();
         }
         catch (SQLException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         finally {
             closePS(ps);
@@ -219,13 +219,13 @@ public class SQLiteDatabase extends Database {
             }
         }
         catch (DatabaseReadException dre) {
-            Database.logger().log(Level.WARNING, dre.getMessage(), dre);
+            PBDatabaseAPI.logger().log(Level.WARNING, dre.getMessage(), dre);
         }
         catch (SQLException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
             try {
@@ -236,7 +236,7 @@ public class SQLiteDatabase extends Database {
                 }
             }
             catch (SQLException ex) {
-                Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+                PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
         try {
@@ -245,7 +245,7 @@ public class SQLiteDatabase extends Database {
             }
         }
         catch (DatabaseAccessException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
     }
 
@@ -275,13 +275,13 @@ public class SQLiteDatabase extends Database {
 
         }
         catch (DatabaseReadException dre) {
-            Database.logger().log(Level.WARNING, dre.getMessage(), dre);
+            PBDatabaseAPI.logger().log(Level.WARNING, dre.getMessage(), dre);
         }
         catch (SQLException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            Database.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+            PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
             try {
@@ -292,7 +292,7 @@ public class SQLiteDatabase extends Database {
                 }
             }
             catch (SQLException ex) {
-                Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+                PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
         try {
@@ -304,7 +304,7 @@ public class SQLiteDatabase extends Database {
 
         }
         catch (DatabaseAccessException dae) {
-            Database.logger().log(Level.WARNING, dae.getMessage(), dae);
+            PBDatabaseAPI.logger().log(Level.WARNING, dae.getMessage(), dae);
         }
     }
 
@@ -354,7 +354,7 @@ public class SQLiteDatabase extends Database {
             throw new DatabaseWriteException("Error updating SQLite schema: " + sqle.getMessage());
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            Database.logger().log(Level.WARNING, "Error updating SQLite schema." + dtie.getMessage(), dtie);
+            PBDatabaseAPI.logger().log(Level.WARNING, "Error updating SQLite schema." + dtie.getMessage(), dtie);
         }
         finally {
             closeRS(rs);
@@ -397,14 +397,14 @@ public class SQLiteDatabase extends Database {
             String state = "CREATE TABLE IF NOT EXISTS `" + data.getName() + "` (" + fields.toString() + ") ";
             ps = conn.prepareStatement(state);
             if (ps.execute()) {
-                Database.logger().log(Level.INFO, "Statment Executed!");
+                PBDatabaseAPI.logger().log(Level.INFO, "Statment Executed!");
             }
         }
         catch (SQLException ex) {
             throw new DatabaseWriteException("Error creating SQLite table '" + data.getName() + "'. " + ex.getMessage());
         }
         catch (DatabaseTableInconsistencyException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage() + " Error creating SQLite table '" + data.getName() + "'. ", ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage() + " Error creating SQLite table '" + data.getName() + "'. ", ex);
         }
         finally {
             closePS(ps);
@@ -534,7 +534,7 @@ public class SQLiteDatabase extends Database {
                 rs.close();
             }
             catch (SQLException sqle) {
-                Database.logger().log(Level.WARNING, "Error closing ResultSet in SQLite database.", sqle);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing ResultSet in SQLite database.", sqle);
             }
         }
     }
@@ -552,7 +552,7 @@ public class SQLiteDatabase extends Database {
                 ps.close();
             }
             catch (SQLException sqle) {
-                Database.logger().log(Level.WARNING, "Error closing PreparedStatement in SQLite database.", sqle);
+                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing PreparedStatement in SQLite database.", sqle);
             }
         }
     }
@@ -625,7 +625,7 @@ public class SQLiteDatabase extends Database {
             }
         }
         catch (SQLException ex) {
-            Database.logger().log(Level.WARNING, ex.getMessage(), ex);
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         finally {
             closeRS(resultSet);

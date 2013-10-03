@@ -1,11 +1,8 @@
 package net.playblack.pbdbapi;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.List;
 import java.util.logging.Level;
-import java.util.logging.Logger;
-import net.playblack.pbdbapi.config.DatabaseConfiguration;
 import net.playblack.pbdbapi.exceptions.DatabaseException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
@@ -50,40 +47,15 @@ public abstract class Database {
         }
     }
 
-    private static Logger logger = Logger.getAnonymousLogger();
-    private static DatabaseConfiguration config = new DatabaseConfiguration("config" + File.separatorChar + "db.cfg");
-
     public static Database get() {
-        Database ret = Database.Type.getDatabaseFromType(config.getDatasourceType());
+        Database ret = Database.Type.getDatabaseFromType(PBDatabaseAPI.get().getDatabaseConfig().getDatasourceType());
         if (ret != null) {
             return ret;
         }
         else {
-            logger().log(Level.WARNING, "Database type " + config.getDatasourceType() + " is not available, falling back to XML! Fix your server.cfg");
+            PBDatabaseAPI.logger().log(Level.WARNING, "Database type " + Database.Type.getDatabaseFromType(PBDatabaseAPI.get().getDatabaseConfig().getDatasourceType()) + " is not available, falling back to XML! Fix your server.cfg");
             return XmlDatabase.getInstance();
         }
-    }
-
-    /**
-     * Gets the { @link Logger } for the PBDataAccess Library.
-     * @return { @link Logger }
-     */
-    public static Logger logger() {
-        return Database.logger;
-    }
-
-    /**
-     * Sets the { @link Logger } for the PBDatabaseAPI Library.
-     * @param logger The { @link Logger } to set for the PBDatabaseAPI Library to use.
-     * @return Returns the singleton for convenience.
-     */
-    public Database setLogger(Logger logger) {
-        Database.logger = logger != null ? logger : logger;
-        return Database.get();
-    }
-    
-    public static DatabaseConfiguration getDatabaseConfig() {
-        return config;
     }
 
     /**
