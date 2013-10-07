@@ -27,6 +27,8 @@ import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.queries.Select;
+import net.playblack.pbdbapi.queries.UpdateSchema;
 
 /**
  * SQLite Database
@@ -62,7 +64,6 @@ public class SQLiteDatabase extends Database {
         return SQLiteDatabase.instance;
     }
 
-    @Override
     public void insert(DataAccess data) throws DatabaseWriteException {
         if (doesEntryExist(data)) {
             return;
@@ -119,7 +120,6 @@ public class SQLiteDatabase extends Database {
 
     }
 
-    @Override
     public void update(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
         if (!doesEntryExist(data)) {
             return;
@@ -170,7 +170,6 @@ public class SQLiteDatabase extends Database {
         }
     }
 
-    @Override
     public void remove(String tableName, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
         PreparedStatement ps = null;
         try {
@@ -196,7 +195,6 @@ public class SQLiteDatabase extends Database {
         }
     }
 
-    @Override
     public void load(DataAccess dataset, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
         ResultSet rs = null;
         HashMap<String, Object> dataSet = new HashMap<String, Object>();
@@ -249,7 +247,6 @@ public class SQLiteDatabase extends Database {
         }
     }
 
-    @Override
     public void loadAll(DataAccess typeTemplate, List<DataAccess> datasets, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
         ResultSet rs = null;
         List<HashMap<String, Object>> stuff = new ArrayList<HashMap<String, Object>>();
@@ -308,7 +305,6 @@ public class SQLiteDatabase extends Database {
         }
     }
 
-    @Override
     public void updateSchema(DataAccess schemaTemplate) throws DatabaseWriteException {
         PreparedStatement ps = null;
         ResultSet rs = null;
@@ -803,6 +799,21 @@ public class SQLiteDatabase extends Database {
             }
         }
         return sb.toString();
+    }
+
+    @Override
+    public DataAccess[] query(Select query) throws DatabaseReadException {
+        throw new UnsupportedOperationException("Method 'query' in class 'SQLiteDatabase' is not supported yet.");
+    }
+
+    @Override
+    public void executeQueries() throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'executeQueries' in class 'SQLiteDatabase' is not supported yet.");
+    }
+
+    @Override
+    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'updateSchema' in class 'SQLiteDatabase' is not supported yet.");
     }
 
 }

@@ -12,14 +12,14 @@ import java.util.HashSet;
 import java.util.List;
 import net.playblack.pbdbapi.Column;
 import net.playblack.pbdbapi.Column.DataType;
-
 import net.playblack.pbdbapi.DataAccess;
 import net.playblack.pbdbapi.Database;
 import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
-
+import net.playblack.pbdbapi.queries.Select;
+import net.playblack.pbdbapi.queries.UpdateSchema;
 import org.jdom2.Content;
 import org.jdom2.Document;
 import org.jdom2.Element;
@@ -52,7 +52,6 @@ public class XmlDatabase extends Database {
 
     private SAXBuilder fileBuilder = new SAXBuilder();
 
-    @Override
     public void insert(DataAccess data) throws DatabaseWriteException {
         File file = new File("db/" + data.getName() + ".xml");
 
@@ -84,7 +83,6 @@ public class XmlDatabase extends Database {
         }
     }
 
-    @Override
     public void load(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
         File file = new File("db/" + data.getName() + ".xml");
 
@@ -112,7 +110,6 @@ public class XmlDatabase extends Database {
         }
     }
 
-    @Override
     public void loadAll(DataAccess typeTemplate, List<DataAccess> datasets, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
         File file = new File("db/" + typeTemplate.getName() + ".xml");
 
@@ -141,7 +138,6 @@ public class XmlDatabase extends Database {
 
     }
 
-    @Override
     public void update(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
         File file = new File("db/" + data.getName() + ".xml");
 
@@ -169,7 +165,6 @@ public class XmlDatabase extends Database {
         }
     }
 
-    @Override
     public void remove(String tableName, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
         File file = new File("db/" + tableName + ".xml");
 
@@ -194,7 +189,6 @@ public class XmlDatabase extends Database {
         }
     }
 
-    @Override
     public void updateSchema(DataAccess data) throws DatabaseWriteException {
         File file = new File("db/" + data.getName() + ".xml");
 
@@ -736,6 +730,21 @@ public class XmlDatabase extends Database {
                 }
             });
         }
+    }
+
+    @Override
+    public DataAccess[] query(Select query) throws DatabaseReadException {
+        throw new UnsupportedOperationException("Method 'query' in class 'XmlDatabase' is not supported yet.");
+    }
+
+    @Override
+    public void executeQueries() throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'executeQueries' in class 'XmlDatabase' is not supported yet.");
+    }
+
+    @Override
+    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'updateSchema' in class 'XmlDatabase' is not supported yet.");
     }
 
 }

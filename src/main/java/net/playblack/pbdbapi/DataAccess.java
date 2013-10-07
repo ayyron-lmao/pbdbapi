@@ -8,7 +8,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
-
 import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
@@ -233,7 +232,7 @@ public abstract class DataAccess {
     /** Makes sure the database file for this DataAccess exists before anything starts to use it */
     private void createTable() {
         try {
-            Database.get().updateSchema(this);
+            Database.get().updateSchema(Database.get().updateSchema().from(this));
         }
         catch (DatabaseWriteException e) {
             PBDatabaseAPI.logger().log(Level.WARNING, e.getMessage(), e);
@@ -270,7 +269,7 @@ public abstract class DataAccess {
      * @return instance
      */
     public abstract DataAccess getInstance();
-    
+
     /**
      * Merge 2 arrays. This will remove duplicates.
      *

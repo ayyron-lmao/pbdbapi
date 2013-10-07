@@ -17,18 +17,38 @@ import java.util.logging.Logger;
 import net.playblack.pbdbapi.Column;
 import net.playblack.pbdbapi.DataAccess;
 import net.playblack.pbdbapi.Database;
+import net.playblack.pbdbapi.JDBCHelper;
 import net.playblack.pbdbapi.PBDatabaseAPI;
 import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.queries.Delete;
+import net.playblack.pbdbapi.queries.Insert;
+import net.playblack.pbdbapi.queries.Query;
+import net.playblack.pbdbapi.queries.QueryEntry;
+import net.playblack.pbdbapi.queries.Select;
+import net.playblack.pbdbapi.queries.Update;
+import net.playblack.pbdbapi.queries.UpdateSchema;
+import net.playblack.pbdbapi.queries.Where;
 
 /** @author Somners */
 public class MySQLDatabase extends Database {
 
     private static MySQLDatabase instance;
     private static MySQLConnectionPool pool;
-    private final String LIST_REGEX = "\u00B6";
+    /** Takes: Table Name, Column Names, Values */
+    private final String INSERT = "INSERT INTO `%s` (%s) VALUES (%s)";
+    /** Takes: Table Name, Conditions, Limit */
+    private final String SELECT = "SELECT * FROM `%s` WHERE %s LIMIT %s";
+    /** Takes: Table Name, Limit */
+    private final String SELECT_ALL = "SELECT * FROM `%s` LIMIT %s";
+    /** Takes: Table Name, Column Data */
+    private final String CREATE_TABLE = "CREATE TABLE IF NOT EXISTS `%s` (%s) ENGINE = INNODB";
+    /** Takes: Table Name, Column Name, JDBC Data Type Syntax */
+    private final String INSERT_COLUMN = "ALTER TABLE `%s` ADD `%s` %s";
+    /** Takes: Table Name, Column Name */
+    private final String DELETE_COLUMN = "ALTER TABLE `%s` DROP `%s`";
 
     private MySQLDatabase() {
         try {
@@ -45,20 +65,23 @@ public class MySQLDatabase extends Database {
         return instance;
     }
 
-    @Override
-    public void insert(DataAccess data) throws DatabaseWriteException {
-        if (this.doesEntryExist(data)) {
+    public void query(Query query, Connection conn) throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'query' in class 'MySQLDatabase' is not supported yet.");
+    }
+
+    public void insert(Insert query, Connection conn) throws DatabaseWriteException {
+        if (this.doesEntryExist(conn, query.from())) {
             return;
         }
-        Connection conn = pool.getConnectionFromPool();
         PreparedStatement ps = null;
 
         try {
             StringBuilder fields = new StringBuilder();
             StringBuilder values = new StringBuilder();
-            HashMap<Column, Object> columns = data.toDatabaseEntryList();
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
             Iterator<Column> it = columns.keySet().iterator();
 
+            /* Generates field and value Strings */
             Column column;
             while (it.hasNext()) {
                 column = it.next();
@@ -67,21 +90,20 @@ public class MySQLDatabase extends Database {
                     values.append("?").append(",");
                 }
             }
-            if (fields.length() > 0) {
-                fields.deleteCharAt(fields.length() - 1);
-            }
-            if (values.length() > 0) {
-                values.deleteCharAt(values.length() - 1);
-            }
-            ps = conn.prepareStatement("INSERT INTO `" + data.getName() + "` (" + fields.toString() + ") VALUES(" + values.toString() + ")");
+            /* Deletes the trailing comma's for proper syntax */
+            fields.deleteCharAt(fields.length() - 1);
+            values.deleteCharAt(values.length() - 1);
 
+            ps = conn.prepareStatement(String.format(INSERT, query.from().getName(), fields, values));
+
+            /* Inserts values to columns */
             int i = 1;
             for (Column c : columns.keySet()) {
                 if (!c.autoIncrement()) {
                     if (c.isList()) {
-                        ps.setObject(i, this.getString((List<?>) columns.get(c)));
+                        ps.setObject(i, JDBCHelper.getListString((List<?>) columns.get(c)));
                     }
-                    ps.setObject(i, this.convert(columns.get(c)));
+                    ps.setObject(i, JDBCHelper.convert(columns.get(c)));
                     i++;
                 }
             }
@@ -98,31 +120,33 @@ public class MySQLDatabase extends Database {
         }
         finally {
             this.closePS(ps);
-            pool.returnConnectionToPool(conn);
         }
-
     }
 
-    @Override
-    public void update(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
-        if (!this.doesEntryExist(data)) {
+    public void update(Update query, Connection conn) throws DatabaseWriteException {
+        if (!this.doesEntryExist(conn, query.from())) {
             return;
         }
-
-        Connection conn = pool.getConnectionFromPool();
         ResultSet rs = null;
 
         try {
-            rs = this.getResultSet(conn, data, fieldNames, fieldValues, true);
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
+            Select select = (Select)Query.Type.SELECT.newQuery();
+            select.from(query.from()).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
+            }
+
+            rs = this.getResultSet(conn, select);
+
             if (rs != null) {
                 if (rs.next()) {
-                    HashMap<Column, Object> columns = data.toDatabaseEntryList();
                     Iterator<Column> it = columns.keySet().iterator();
                     Column column;
                     while (it.hasNext()) {
                         column = it.next();
                         if (column.isList()) {
-                            rs.updateObject(column.columnName(), this.getString((List<?>) columns.get(column)));
+                            rs.updateObject(column.columnName(), JDBCHelper.getListString((List<?>) columns.get(column)));
                         }
                         else {
                             rs.updateObject(column.columnName(), columns.get(column));
@@ -131,7 +155,7 @@ public class MySQLDatabase extends Database {
                     rs.updateRow();
                 }
                 else {
-                    throw new DatabaseWriteException("Error updating DataAccess to MySQL, no such entry: " + data.toString());
+                    throw new DatabaseWriteException("Error updating DataAccess to MySQL, no such entry: " + query.from().toString());
                 }
             }
         }
@@ -149,7 +173,6 @@ public class MySQLDatabase extends Database {
                 PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
                 this.closeRS(rs);
                 this.closePS(st);
-                pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
                 PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
@@ -157,13 +180,18 @@ public class MySQLDatabase extends Database {
         }
     }
 
-    @Override
-    public void remove(String tableName, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
+    public void remove(Delete query, Connection conn) throws DatabaseWriteException {
         ResultSet rs = null;
 
         try {
-            rs = this.getResultSet(conn, tableName, fieldNames, fieldValues, true);
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
+            Select select = (Select)Query.Type.SELECT.newQuery();
+            select.from(query.from()).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
+            }
+            rs = this.getResultSet(conn, select);
+
             if (rs != null) {
                 if (rs.next()) {
                     rs.deleteRow();
@@ -177,12 +205,14 @@ public class MySQLDatabase extends Database {
         catch (SQLException ex) {
             PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
+        catch (DatabaseTableInconsistencyException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
         finally {
             try {
                 PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
                 this.closeRS(rs);
                 this.closePS(st);
-                pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
                 PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
@@ -190,18 +220,23 @@ public class MySQLDatabase extends Database {
         }
     }
 
-    @Override
-    public void load(DataAccess dataset, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
+    public DataAccess load(Select query, Connection conn) throws DatabaseReadException {
         ResultSet rs = null;
-        Connection conn = pool.getConnectionFromPool();
         HashMap<String, Object> dataSet = new HashMap<String, Object>();
         try {
-            rs = this.getResultSet(conn, dataset, fieldNames, fieldValues, true);
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
+            Select select = (Select)Query.Type.SELECT.newQuery();
+            select.from(query.from()).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
+            }
+            rs = this.getResultSet(conn, select);
+
             if (rs != null) {
                 if (rs.next()) {
-                    for (Column column : dataset.getTableLayout()) {
+                    for (Column column : query.from().getTableLayout()) {
                         if (column.isList()) {
-                            dataSet.put(column.columnName(), this.getList(column.dataType(), rs.getString(column.columnName())));
+                            dataSet.put(column.columnName(), JDBCHelper.getList(column.dataType(), rs.getString(column.columnName())));
                         }
                         else if (rs.getObject(column.columnName()) instanceof Boolean) {
                             dataSet.put(column.columnName(), rs.getBoolean(column.columnName()));
@@ -227,82 +262,21 @@ public class MySQLDatabase extends Database {
                 PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
                 this.closeRS(rs);
                 this.closePS(st);
-                pool.returnConnectionToPool(conn);
             }
             catch (SQLException ex) {
                 PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
         try {
-            dataset.load(dataSet);
+            query.from().load(dataSet);
         }
         catch (DatabaseAccessException ex) {
             PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
+        return query.from();
     }
 
-    @Override
-    public void loadAll(DataAccess typeTemplate, List<DataAccess> datasets, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
-        ResultSet rs = null;
-        Connection conn = pool.getConnectionFromPool();
-        List<HashMap<String, Object>> stuff = new ArrayList<HashMap<String, Object>>();
-        try {
-            rs = this.getResultSet(conn, typeTemplate, fieldNames, fieldValues, false);
-            if (rs != null) {
-                while (rs.next()) {
-                    HashMap<String, Object> dataSet = new HashMap<String, Object>();
-                    for (Column column : typeTemplate.getTableLayout()) {
-                        if (column.isList()) {
-                            dataSet.put(column.columnName(), this.getList(column.dataType(), rs.getString(column.columnName())));
-                        }
-                        else if (rs.getObject(column.columnName()) instanceof Boolean) {
-                            dataSet.put(column.columnName(), rs.getBoolean(column.columnName()));
-                        }
-                        else {
-                            dataSet.put(column.columnName(), rs.getObject(column.columnName()));
-                        }
-                    }
-                    stuff.add(dataSet);
-                }
-            }
-
-        }
-        catch (DatabaseReadException dre) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dre.getMessage(), dre);
-        }
-        catch (SQLException ex) {
-            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
-        }
-        catch (DatabaseTableInconsistencyException dtie) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
-        }
-        finally {
-            try {
-                PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
-                this.closeRS(rs);
-                this.closePS(st);
-                pool.returnConnectionToPool(conn);
-            }
-            catch (SQLException ex) {
-                PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
-            }
-        }
-        try {
-            for (HashMap<String, Object> temp : stuff) {
-                DataAccess newData = typeTemplate.getInstance();
-                newData.load(temp);
-                datasets.add(newData);
-            }
-
-        }
-        catch (DatabaseAccessException dae) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dae.getMessage(), dae);
-        }
-    }
-
-    @Override
-    public void updateSchema(DataAccess schemaTemplate) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
+    public void updateSchema(UpdateSchema query, Connection conn) throws DatabaseWriteException {
         PreparedStatement ps = null;
         ResultSet rs = null;
 
@@ -310,15 +284,15 @@ public class MySQLDatabase extends Database {
             // First check if the table exists, if it doesn't we'll skip the rest
             // of this method since we're creating it fresh.
             DatabaseMetaData metadata = conn.getMetaData();
-            rs = metadata.getTables(null, null, schemaTemplate.getName(), null);
+            rs = metadata.getTables(null, null, query.from().getName(), null);
             if (!rs.first()) {
-                this.createTable(schemaTemplate);
+                this.createTable(conn, query.from());
             }
             else {
 
                 LinkedList<String> toRemove = new LinkedList<String>();
                 HashMap<String, Column> toAdd = new HashMap<String, Column>();
-                Iterator<Column> it = schemaTemplate.getTableLayout().iterator();
+                Iterator<Column> it = query.from().getTableLayout().iterator();
 
                 Column column;
                 while (it.hasNext()) {
@@ -326,7 +300,7 @@ public class MySQLDatabase extends Database {
                     toAdd.put(column.columnName(), column);
                 }
 
-                for (String col : this.getColumnNames(schemaTemplate)) {
+                for (String col : this.getColumnNames(query.from())) {
                     if (!toAdd.containsKey(col)) {
                         toRemove.add(col);
                     }
@@ -336,10 +310,10 @@ public class MySQLDatabase extends Database {
                 }
 
                 for (String name : toRemove) {
-                    this.deleteColumn(schemaTemplate.getName(), name);
+                    this.deleteColumn(conn, query.from().getName(), name);
                 }
                 for (Map.Entry<String, Column> entry : toAdd.entrySet()) {
-                    this.insertColumn(schemaTemplate.getName(), entry.getValue());
+                    this.insertColumn(conn, query.from().getName(), entry.getValue());
                 }
             }
         }
@@ -352,12 +326,113 @@ public class MySQLDatabase extends Database {
         finally {
             this.closeRS(rs);
             this.closePS(ps);
-            pool.returnConnectionToPool(conn);
         }
     }
 
-    public void createTable(DataAccess data) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
+    public ResultSet getResultSet(Connection conn, Select select) throws DatabaseReadException {
+        PreparedStatement ps;
+        ResultSet toRet = null;
+
+        try {
+            if (select.getWheres().size() > 0) {
+                StringBuilder sb = new StringBuilder();
+
+                for (QueryEntry entry : select.getWheres()) {
+                    sb.append(" AND `").append(entry.getColumnName()).append("`=?");
+                }
+                sb.delete(0, 5);
+
+                ps = conn.prepareStatement(String.format(SELECT, select.from().getName(), sb, select.limit()));
+
+                int i = 0;
+                for (QueryEntry entry : select.getWheres()) {
+                    ps.setObject(i + 1, JDBCHelper.convert(entry.getColumnValue()));
+                    i++;
+                }
+                toRet = ps.executeQuery();
+            }
+            else {
+                ps = conn.prepareStatement(String.format(SELECT_ALL, select.from().getName(), select.limit()));
+
+                toRet = ps.executeQuery();
+            }
+        }
+        catch (SQLException ex) {
+            throw new DatabaseReadException("Error Querying MySQL ResultSet in "
+                    + select.from().getName());
+        }
+        catch (Exception ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return toRet;
+    }
+
+    public boolean doesEntryExist(Connection conn, DataAccess data) throws DatabaseWriteException {
+//        Connection conn = pool.getConnectionFromPool();
+        ResultSet rs = null;
+        boolean toRet = false;
+
+        try {
+            HashMap<Column, Object> columns = data.toDatabaseEntryList();
+            Select select = (Select)Query.Type.SELECT.newQuery();
+            select.from(data).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
+            }
+
+            rs = this.getResultSet(conn, select);
+            toRet = rs.next();
+        }
+        catch (SQLException ex) {
+            throw new DatabaseWriteException(ex.getMessage() + " Error checking MySQL Entry Key in "
+                    + data.toString());
+        }
+        catch (DatabaseTableInconsistencyException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (DatabaseReadException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        finally {
+            this.closeRS(rs);
+        }
+        return toRet;
+    }
+
+    public List<String> getColumnNames(DataAccess data) {
+        Statement statement = null;
+        ResultSet resultSet = null;
+
+        ArrayList<String> columns = new ArrayList<String>();
+        String columnName;
+
+        Connection connection = pool.getConnectionFromPool();
+        try {
+            statement = connection.createStatement();
+            resultSet = statement.executeQuery("SHOW COLUMNS FROM `" + data.getName() + "`");
+            while (resultSet.next()) {
+                columnName = resultSet.getString("field");
+                columns.add(columnName);
+            }
+        }
+        catch (SQLException ex) {
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
+        }
+        finally {
+            this.closeRS(resultSet);
+            if (statement != null) {
+                try {
+                    statement.close();
+                }
+                catch (SQLException ex) {
+                    Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+            pool.returnConnectionToPool(connection);
+        }
+        return columns;
+    }
+
+    public void createTable(Connection conn, DataAccess data) throws DatabaseWriteException {
         PreparedStatement ps = null;
 
         try {
@@ -370,7 +445,7 @@ public class MySQLDatabase extends Database {
             while (it.hasNext()) {
                 column = it.next();
                 fields.append("`").append(column.columnName()).append("` ");
-                fields.append(this.getDataTypeSyntax(column.dataType()));
+                fields.append(JDBCHelper.getDataTypeSyntax(column.dataType()));
                 if (column.autoIncrement()) {
                     fields.append(" AUTO_INCREMENT");
                 }
@@ -384,7 +459,7 @@ public class MySQLDatabase extends Database {
             if (primary != null) {
                 fields.append(", PRIMARY KEY(`").append(primary).append("`)");
             }
-            ps = conn.prepareStatement("CREATE TABLE IF NOT EXISTS `" + data.getName() + "` (" + fields.toString() + ") ");
+            ps = conn.prepareStatement(String.format(CREATE_TABLE, data.getName(), fields.toString()));
             ps.execute();
         }
         catch (SQLException ex) {
@@ -395,17 +470,15 @@ public class MySQLDatabase extends Database {
         }
         finally {
             this.closePS(ps);
-            pool.returnConnectionToPool(conn);
         }
     }
 
-    public void insertColumn(String tableName, Column column) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
+    public void insertColumn(Connection conn, String tableName, Column column) throws DatabaseWriteException {
         PreparedStatement ps = null;
 
         try {
             if (column != null && !column.columnName().trim().equals("")) {
-                ps = conn.prepareStatement("ALTER TABLE `" + tableName + "` ADD `" + column.columnName() + "` " + this.getDataTypeSyntax(column.dataType()));
+                ps = conn.prepareStatement(String.format(DELETE_COLUMN, tableName, column.columnName(), JDBCHelper.getDataTypeSyntax(column.dataType())));
                 ps.execute();
             }
         }
@@ -414,18 +487,16 @@ public class MySQLDatabase extends Database {
         }
         finally {
             this.closePS(ps);
-            pool.returnConnectionToPool(conn);
         }
 
     }
 
-    public void deleteColumn(String tableName, String columnName) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
+    public void deleteColumn(Connection conn, String tableName, String columnName) throws DatabaseWriteException {
         PreparedStatement ps = null;
 
         try {
             if (columnName != null && !columnName.trim().equals("")) {
-                ps = conn.prepareStatement("ALTER TABLE `" + tableName + "` DROP `" + columnName + "`");
+                ps = conn.prepareStatement(String.format(DELETE_COLUMN, tableName, columnName));
                 ps.execute();
             }
         }
@@ -434,92 +505,22 @@ public class MySQLDatabase extends Database {
         }
         finally {
             this.closePS(ps);
-            pool.returnConnectionToPool(conn);
         }
     }
 
-    public boolean doesPrimaryKeyExist(DataAccess data, String primaryKey, Object value) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
-        PreparedStatement ps = null;
-        boolean toRet = false;
-
+    public Select getSelect(Where where) {
+        Select select = null;
         try {
-            ps = conn.prepareStatement("SELECT * FROM `" + data.getName() + "` WHERE '" + primaryKey + "' = ?");
-            ps.setObject(1, this.convert(value));
-            toRet = ps.execute();
-
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException("Error checking Value for MySQL Primary "
-                    + "Key in Table `" + data.getName() + "` for key `" + primaryKey
-                    + "` and value '" + String.valueOf(value) + "'.");
-        }
-        finally {
-            this.closePS(ps);
-            pool.returnConnectionToPool(conn);
-        }
-        return toRet;
-    }
-
-    public boolean doesEntryExist(DataAccess data) throws DatabaseWriteException {
-        Connection conn = pool.getConnectionFromPool();
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        boolean toRet = false;
-
-        try {
-            StringBuilder sb = new StringBuilder();
-            HashMap<Column, Object> columns = data.toDatabaseEntryList();
-            Iterator<Column> it = columns.keySet().iterator();
-
-            Column column;
-            while (it.hasNext()) {
-                column = it.next();
-                if (!column.autoIncrement()) {
-                    if (sb.length() > 0) {
-                        sb.append(" AND '").append(column.columnName());
-                    }
-                    else {
-                        sb.append("'").append(column.columnName());
-                    }
-                    sb.append("' = ?");
-                    // if (it.hasNext()) {
-                    // sb.append("' = ? AND ");
-                    // } else {
-                    // sb.append("' = ?");
-                    // }
-                }
+            HashMap<Column, Object> columns = where.from().toDatabaseEntryList();
+            select = (Select)Query.Type.SELECT.newQuery();
+            select.from(where.from()).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
             }
-            ps = conn.prepareStatement("SELECT * FROM `" + data.getName() + "` WHERE " + sb.toString());
-            it = columns.keySet().iterator();
-
-            int index = 1;
-            while (it.hasNext()) {
-                column = it.next();
-                if (!column.autoIncrement()) {
-                    ps.setObject(index, this.convert(columns.get(column)));
-                    index++;
-                }
-            }
-            rs = ps.executeQuery();
-            if (rs != null) {
-                toRet = rs.next();
-            }
-
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException(ex.getMessage() + " Error checking MySQL Entry Key in "
-                    + data.toString());
-        }
-        catch (DatabaseTableInconsistencyException ex) {
+        } catch (DatabaseTableInconsistencyException ex) {
             Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
         }
-        finally {
-            this.closePS(ps);
-            this.closeRS(rs);
-            pool.returnConnectionToPool(conn);
-        }
-        return toRet;
+        return select;
     }
 
     /**
@@ -560,203 +561,19 @@ public class MySQLDatabase extends Database {
         }
     }
 
-    public ResultSet getResultSet(Connection conn, DataAccess data, String[] fieldNames, Object[] fieldValues, boolean limitOne) throws DatabaseReadException {
-        return this.getResultSet(conn, data.getName(), fieldNames, fieldValues, limitOne);
+    @Override
+    public DataAccess[] query(Select query) throws DatabaseReadException {
+        throw new UnsupportedOperationException("Method 'query' in class 'MySQLDatabase' is not supported yet.");
     }
 
-    public ResultSet getResultSet(Connection conn, String tableName, String[] fieldNames, Object[] fieldValues, boolean limitOne) throws DatabaseReadException {
-        PreparedStatement ps;
-        ResultSet toRet = null;
-
-        try {
-            if (fieldNames.length > 0) {
-                StringBuilder sb = new StringBuilder();
-
-                for (int i = 0; i < fieldNames.length && i < fieldValues.length; i++) {
-                    sb.append("`").append(fieldNames[i]);
-                    if (i + 1 < fieldNames.length) {
-                        sb.append("`=? AND ");
-                    }
-                    else {
-                        sb.append("`=?");
-                    }
-                }
-                if (limitOne) {
-                    sb.append(" LIMIT 1");
-                }
-                ps = conn.prepareStatement("SELECT * FROM `" + tableName + "` WHERE " + sb.toString());
-                for (int i = 0; i < fieldNames.length && i < fieldValues.length; i++) {
-                    ps.setObject(i + 1, this.convert(fieldValues[i]));
-                }
-                toRet = ps.executeQuery();
-            }
-            else {
-                if (limitOne) {
-                    ps = conn.prepareStatement("SELECT * FROM `" + tableName + "` LIMIT 1");
-                }
-                else {
-                    ps = conn.prepareStatement("SELECT * FROM `" + tableName + "`");
-                }
-
-                toRet = ps.executeQuery();
-            }
-        }
-        catch (SQLException ex) {
-            throw new DatabaseReadException("Error Querying MySQL ResultSet in "
-                    + tableName);
-        }
-        catch (Exception ex) {
-            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        return toRet;
+    @Override
+    public void executeQueries() throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'executeQueries' in class 'MySQLDatabase' is not supported yet.");
     }
 
-    public List<String> getColumnNames(DataAccess data) {
-        Statement statement = null;
-        ResultSet resultSet = null;
-
-        ArrayList<String> columns = new ArrayList<String>();
-        String columnName;
-
-        Connection connection = pool.getConnectionFromPool();
-        try {
-            statement = connection.createStatement();
-            resultSet = statement.executeQuery("SHOW COLUMNS FROM `" + data.getName() + "`");
-            while (resultSet.next()) {
-                columnName = resultSet.getString("field");
-                columns.add(columnName);
-            }
-        }
-        catch (SQLException ex) {
-            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
-        }
-        finally {
-            this.closeRS(resultSet);
-            if (statement != null) {
-                try {
-                    statement.close();
-                }
-                catch (SQLException ex) {
-                    Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
-                }
-            }
-            pool.returnConnectionToPool(connection);
-        }
-        return columns;
-    }
-
-    private String getDataTypeSyntax(Column.DataType type) {
-        switch (type) {
-            case BYTE:
-                return "INT";
-            case INTEGER:
-                return "INT";
-            case FLOAT:
-                return "DOUBLE";
-            case DOUBLE:
-                return "DOUBLE";
-            case LONG:
-                return "BIGINT";
-            case SHORT:
-                return "INT";
-            case STRING:
-                return "TEXT";
-            case BOOLEAN:
-                return "BOOLEAN";
-        }
-        return "";
-    }
-
-    /**
-     * Replaces '*' character with '\\*' if the Object is a String.
-     *
-     * @param o
-     *
-     * @return
-     */
-    private Object convert(Object o) {
-        if (o instanceof String && ((String) o).contains("*")) {
-            ((String) o).replace("*", "\\*");
-        }
-        return o;
-    }
-
-    /**
-     * Gets a Java List representation from the mysql String.
-     *
-     * @param type
-     * @param field
-     *
-     * @return
-     */
-    private List<Comparable<?>> getList(Column.DataType type, String field) {
-        List<Comparable<?>> list = new ArrayList<Comparable<?>>();
-        if (field == null) {
-            return list;
-        }
-        switch (type) {
-            case BYTE:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Byte.valueOf(s));
-                }
-                break;
-            case INTEGER:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Integer.valueOf(s));
-                }
-                break;
-            case FLOAT:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Float.valueOf(s));
-                }
-                break;
-            case DOUBLE:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Double.valueOf(s));
-                }
-                break;
-            case LONG:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Long.valueOf(s));
-                }
-                break;
-            case SHORT:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Short.valueOf(s));
-                }
-                break;
-            case STRING:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(s);
-                }
-                break;
-            case BOOLEAN:
-                for (String s : field.split(this.LIST_REGEX)) {
-                    list.add(Boolean.valueOf(s));
-                }
-                break;
-        }
-        return list;
-    }
-
-    /**
-     * Get the database entry for a Java List.
-     *
-     * @param list
-     *
-     * @return a string representation of the passed list.
-     */
-    public String getString(List<?> list) {
-        StringBuilder sb = new StringBuilder();
-        Iterator<?> it = list.iterator();
-        while (it.hasNext()) {
-            Object o = it.next();
-            sb.append(String.valueOf(o));
-            if (it.hasNext()) {
-                sb.append(this.LIST_REGEX);
-            }
-        }
-        return sb.toString();
+    @Override
+    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
+        throw new UnsupportedOperationException("Method 'updateSchema' in class 'MySQLDatabase' is not supported yet.");
     }
 
 }

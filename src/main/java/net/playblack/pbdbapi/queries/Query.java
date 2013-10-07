@@ -42,8 +42,8 @@ public abstract class Query<T extends Query> {
 
     /**
      * Sets the Database Table/Schema to query.
-     * 
-     * @param access The { @link DataAccess } representing the Table/Schema to 
+     *
+     * @param access The { @link DataAccess } representing the Table/Schema to
      * query.
      * @return This Query for convenience.
      */
@@ -51,19 +51,19 @@ public abstract class Query<T extends Query> {
         this.access = access;
         return (T)this;
     }
-    
+
     /**
      * Gets the Database Table/Schema to query.
-     * 
+     *
      * @return The DataAccess to Query.
      */
-    public DataAccess getFrom() {
+    public DataAccess from() {
         return access;
     }
-    
+
     /**
      * Gets the { @link Query.Type } of this Query.
-     * 
+     *
      * @return { @link Query.Type } of this Query.
      */
     public abstract Type getType();
