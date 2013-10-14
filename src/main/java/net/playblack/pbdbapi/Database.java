@@ -105,7 +105,7 @@ public abstract class Database {
      * @return A new Query Instance.
      */
     public UpdateSchema updateSchema() {
-        return (UpdateSchema) Query.Type.UPDATE_SHEMA.newQuery();
+        return (UpdateSchema) Query.Type.UPDATE_SCHEMA.newQuery();
     }
 
 

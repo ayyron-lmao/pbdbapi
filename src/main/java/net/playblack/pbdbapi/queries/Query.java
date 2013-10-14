@@ -16,7 +16,7 @@ public abstract class Query<T extends Query> {
         INSERT(Insert.class),
         SELECT(Select.class),
         UPDATE(Update.class),
-        UPDATE_SHEMA(UpdateSchema.class);
+        UPDATE_SCHEMA(UpdateSchema.class);
 
         private Class<? extends Query> query;
 

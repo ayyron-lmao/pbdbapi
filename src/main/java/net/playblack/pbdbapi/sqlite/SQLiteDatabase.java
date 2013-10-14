@@ -6,10 +6,8 @@ import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -19,16 +17,28 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import net.playblack.pbdbapi.Column;
-import net.playblack.pbdbapi.Column.DataType;
 import net.playblack.pbdbapi.DataAccess;
 import net.playblack.pbdbapi.Database;
+import net.playblack.pbdbapi.JDBCHelper;
 import net.playblack.pbdbapi.PBDatabaseAPI;
 import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.mysql.MySQLDatabase;
+import net.playblack.pbdbapi.queries.Delete;
+import net.playblack.pbdbapi.queries.Insert;
+import net.playblack.pbdbapi.queries.Query;
+import static net.playblack.pbdbapi.queries.Query.Type.DELETE;
+import static net.playblack.pbdbapi.queries.Query.Type.INSERT;
+import static net.playblack.pbdbapi.queries.Query.Type.SELECT;
+import static net.playblack.pbdbapi.queries.Query.Type.UPDATE;
+import static net.playblack.pbdbapi.queries.Query.Type.UPDATE_SCHEMA;
+import net.playblack.pbdbapi.queries.QueryEntry;
 import net.playblack.pbdbapi.queries.Select;
+import net.playblack.pbdbapi.queries.Update;
 import net.playblack.pbdbapi.queries.UpdateSchema;
+import net.playblack.pbdbapi.queries.Where;
 
 /**
  * SQLite Database
@@ -41,6 +51,18 @@ public class SQLiteDatabase extends Database {
     private static SQLiteDatabase instance;
     private final String LIST_REGEX = "\u00B6";
     private final String database;
+    /** Takes: Table Name, Column Names, Values */
+    private final String INSERT = "INSERT INTO `%s` (%s) VALUES (%s)";
+    /** Takes: Table Name, Conditions, Limit */
+    private final String SELECT = "SELECT * FROM `%s` WHERE %s LIMIT %s";
+    /** Takes: Table Name, Limit */
+    private final String SELECT_ALL = "SELECT * FROM `%s` LIMIT %s";
+    /** Takes: Table Name, Column Data */
+    private final String CREATE_TABLE = "CREATE TABLE IF NOT EXISTS `%s` (%s) ENGINE = INNODB";
+    /** Takes: Table Name, Column Name, JDBC Data Type Syntax */
+    private final String INSERT_COLUMN = "ALTER TABLE `%s` ADD `%s` %s";
+    /** Takes: Table Name, Column Name */
+    private final String DELETE_COLUMN = "ALTER TABLE `%s` DROP `%s`";
 
     private SQLiteDatabase() {
         File path = new File("db/");
@@ -64,18 +86,62 @@ public class SQLiteDatabase extends Database {
         return SQLiteDatabase.instance;
     }
 
-    public void insert(DataAccess data) throws DatabaseWriteException {
-        if (doesEntryExist(data)) {
+    @Override
+    public DataAccess[] query(Select query) throws DatabaseReadException {
+        List<DataAccess> toRet = this.load(query, conn);
+        return toRet.toArray(new DataAccess[toRet.size()]);
+    }
+
+    @Override
+    public void executeQueries() throws DatabaseWriteException {
+        try {
+            conn.setAutoCommit(false);
+            synchronized (lock) {
+                for (Query query : super.queue) {
+                    switch(query.getType()) {
+                        case DELETE:
+                            this.remove((Delete) query, conn);
+                            break;
+                        case INSERT:
+                            this.insert((Insert) query, conn);
+                            break;
+                        case UPDATE:
+                            this.update((Update) query, conn);
+                            break;
+                        case SELECT:
+                            // Aren't capable of returning anything, so just skip it.
+                            break;
+                        case UPDATE_SCHEMA:
+                            this.updateSchema((UpdateSchema) query, conn);
+                            break;
+                    }
+                }
+            }
+            conn.setAutoCommit(true);
+        } catch (SQLException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    @Override
+    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
+        for (Query query : udpateSchema) {
+            this.updateSchema((UpdateSchema) query, conn);
+        }
+    }
+
+    public void insert(Insert query, Connection conn) throws DatabaseWriteException {
+        if (this.doesEntryExist(conn, query.from())) {
             return;
         }
         PreparedStatement ps = null;
 
         try {
-            StringBuilder fields = new StringBuilder();
-            StringBuilder values = new StringBuilder();
-            HashMap<Column, Object> columns = data.toDatabaseEntryList();
+            StringBuilder fields = new StringBuilder(), values = new StringBuilder();
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
             Iterator<Column> it = columns.keySet().iterator();
 
+            /* Generates field and value Strings */
             Column column;
             while (it.hasNext()) {
                 column = it.next();
@@ -84,28 +150,28 @@ public class SQLiteDatabase extends Database {
                     values.append("?").append(",");
                 }
             }
-            if (fields.length() > 0) {
-                fields.deleteCharAt(fields.length() - 1);
-            }
-            if (values.length() > 0) {
-                values.deleteCharAt(values.length() - 1);
-            }
-            String state = "INSERT INTO `" + data.getName() + "` (" + fields.toString() + ") VALUES(" + values.toString() + ")";
-            ps = conn.prepareStatement(state);
+            /* Deletes the trailing comma's for proper syntax */
+            fields.deleteCharAt(fields.length() - 1);
+            values.deleteCharAt(values.length() - 1);
 
+            ps = conn.prepareStatement(String.format(INSERT, query.from().getName(), fields, values));
+
+            /* Inserts values to columns */
             int i = 1;
             for (Column c : columns.keySet()) {
                 if (!c.autoIncrement()) {
                     if (c.isList()) {
-                        ps.setObject(i, getString((List<?>) columns.get(c)));
+                        ps.setObject(i, JDBCHelper.getListString((List<?>) columns.get(c)));
                     }
-                    ps.setObject(i, convert(columns.get(c)));
+                    else {
+                        ps.setObject(i, JDBCHelper.convert(columns.get(c)));
+                    }
                     i++;
                 }
             }
 
             if (ps.executeUpdate() == 0) {
-                throw new DatabaseWriteException("Error inserting SQLite: no rows updated!");
+                throw new DatabaseWriteException("Error inserting MySQL: no rows updated!");
             }
         }
         catch (SQLException ex) {
@@ -115,104 +181,127 @@ public class SQLiteDatabase extends Database {
             PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
         finally {
-            closePS(ps);
+            this.closePS(ps);
         }
-
     }
 
-    public void update(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
-        if (!doesEntryExist(data)) {
+    public void update(Update query, Connection conn) throws DatabaseWriteException {
+        if (!this.doesEntryExist(conn, query.from())) {
             return;
         }
-        PreparedStatement ps = null;
+        ResultSet rs = null;
+
         try {
-            String updateClause = "UPDATE " + data.getName() + " SET %s WHERE %s";
-            StringBuilder set = new StringBuilder();
-            StringBuilder where = new StringBuilder();
-            HashMap<Column, Object> columns = data.toDatabaseEntryList();
-            Iterator<Column> it = columns.keySet().iterator();
-            Column column;
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
+            Select select = this.getSelectFromWhere(query);
 
-            while (it.hasNext()) {
-                column = it.next();
-                if (where.length() > 0) {
-                    where.append(", ").append(column.columnName());
+            rs = this.getResultSet(conn, select);
+
+            if (rs != null) {
+                if (rs.next()) {
+                    Iterator<Column> it = columns.keySet().iterator();
+                    Column column;
+                    while (it.hasNext()) {
+                        column = it.next();
+                        if (column.isList()) {
+                            rs.updateObject(column.columnName(), JDBCHelper.getListString((List<?>) columns.get(column)));
+                        }
+                        else {
+                            rs.updateObject(column.columnName(), columns.get(column));
+                        }
+                    }
+                    rs.updateRow();
                 }
                 else {
-                    where.append(column.columnName());
+                    throw new DatabaseWriteException("Error updating DataAccess to MySQL, no such entry: " + query.from().toString());
                 }
-                set.append("=");
-                set.append(convert(columns.get(column)));
             }
-
-            for (int index = 0; index < fieldNames.length && index < fieldValues.length; index++) {
-                if (where.length() > 0) {
-                    where.append(" AND ").append(fieldNames[index]);
-                }
-                else {
-                    where.append(fieldNames[index]);
-                }
-                where.append("=");
-                where.append(fieldValues[index]);
-            }
-
-            ps = conn.prepareStatement(String.format(updateClause, set.toString(), where.toString()));
-            ps.execute();
         }
         catch (SQLException ex) {
             PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
-        catch (DatabaseTableInconsistencyException dbtiex) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dbtiex.getMessage(), dbtiex);
+        catch (DatabaseTableInconsistencyException dtie) {
+            PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+        }
+        catch (DatabaseReadException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
         }
         finally {
-            closePS(ps);
+            try {
+                PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
+                this.closeRS(rs);
+                this.closePS(st);
+            }
+            catch (SQLException ex) {
+                PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
+            }
         }
     }
 
-    public void remove(String tableName, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
-        PreparedStatement ps = null;
+    public void remove(Delete query, Connection conn) throws DatabaseWriteException {
+        ResultSet rs = null;
+
         try {
-            StringBuilder buildState = new StringBuilder("DELETE FROM " + tableName + " WHERE ");
-            for (int index = 0; index < fieldNames.length && index < fieldValues.length; index++) {
-                if (buildState.length() > ("DELETE FROM " + tableName + " WHERE ").length()) {
-                    buildState.append(" AND ").append(fieldNames[index]);
+            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
+            Select select = this.getSelectFromWhere(query);
+            rs = this.getResultSet(conn, select);
+
+            if (rs != null) {
+                if (rs.next()) {
+                    rs.deleteRow();
                 }
-                else {
-                    buildState.append(fieldNames[index]);
-                }
-                buildState.append("=");
-                buildState.append(fieldValues[index]);
             }
-            ps = conn.prepareStatement(buildState.toString());
-            ps.execute();
+
+        }
+        catch (DatabaseReadException dre) {
+            PBDatabaseAPI.logger().log(Level.WARNING, dre.getMessage(), dre);
         }
         catch (SQLException ex) {
             PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
+        catch (DatabaseTableInconsistencyException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
         finally {
-            closePS(ps);
+            try {
+                PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
+                this.closeRS(rs);
+                this.closePS(st);
+            }
+            catch (SQLException ex) {
+                PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
+            }
         }
     }
 
-    public void load(DataAccess dataset, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
+    public List<DataAccess> load(Select query, Connection conn) throws DatabaseReadException {
+        List<DataAccess> toRet = new ArrayList<DataAccess>();
         ResultSet rs = null;
         HashMap<String, Object> dataSet = new HashMap<String, Object>();
         try {
-            rs = this.getResultSet(conn, dataset, fieldNames, fieldValues, true);
+            rs = this.getResultSet(conn, query);
+
             if (rs != null) {
-                if (rs.next()) {
-                    for (Column column : dataset.getTableLayout()) {
+                while (rs.next()) {
+
+
+                    for (Column column : query.from().getTableLayout()) {
                         if (column.isList()) {
-                            dataSet.put(column.columnName(), getList(column.dataType(), rs.getString(column.columnName())));
+                            dataSet.put(column.columnName(), JDBCHelper.getList(column.dataType(), rs.getString(column.columnName())));
                         }
-                        else if (column.dataType() == DataType.BOOLEAN) {
+                        else if (rs.getObject(column.columnName()) instanceof Boolean) {
                             dataSet.put(column.columnName(), rs.getBoolean(column.columnName()));
                         }
                         else {
                             dataSet.put(column.columnName(), rs.getObject(column.columnName()));
                         }
                     }
+
+                    DataAccess access = null;
+                    access = query.from().getClass().newInstance();
+                    access.load(dataSet);
+                    toRet.add(access);
+                    dataSet.clear(); // Don't forget to clear the hashmap for the next dataset :)
                 }
             }
         }
@@ -224,88 +313,30 @@ public class SQLiteDatabase extends Database {
         }
         catch (DatabaseTableInconsistencyException dtie) {
             PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
-        }
-        finally {
-            try {
-                if (rs != null) {
-                    PreparedStatement st = rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
-                    closeRS(rs);
-                    closePS(st);
-                }
-            }
-            catch (SQLException ex) {
-                PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
-            }
-        }
-        try {
-            if (!dataSet.isEmpty()) {
-                dataset.load(dataSet);
-            }
         }
         catch (DatabaseAccessException ex) {
             PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
-    }
-
-    public void loadAll(DataAccess typeTemplate, List<DataAccess> datasets, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
-        ResultSet rs = null;
-        List<HashMap<String, Object>> stuff = new ArrayList<HashMap<String, Object>>();
-        try {
-            rs = this.getResultSet(conn, typeTemplate, fieldNames, fieldValues, false);
-            if (rs != null) {
-                while (rs.next()) {
-                    HashMap<String, Object> dataSet = new HashMap<String, Object>();
-                    for (Column column : typeTemplate.getTableLayout()) {
-                        if (column.isList()) {
-                            dataSet.put(column.columnName(), getList(column.dataType(), rs.getString(column.columnName())));
-                        }
-                        else if (column.dataType() == DataType.BOOLEAN) {
-                            dataSet.put(column.columnName(), rs.getBoolean(column.columnName()));
-                        }
-                        else {
-                            dataSet.put(column.columnName(), rs.getObject(column.columnName()));
-                        }
-                    }
-                    stuff.add(dataSet);
-                }
-            }
-
+        catch (InstantiationException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
         }
-        catch (DatabaseReadException dre) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dre.getMessage(), dre);
-        }
-        catch (SQLException ex) {
-            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
-        }
-        catch (DatabaseTableInconsistencyException dtie) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
+        catch (IllegalAccessException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
         }
         finally {
             try {
-                if (rs != null) {
-                    PreparedStatement st = rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
-                    closeRS(rs);
-                    closePS(st);
-                }
+                PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
+                this.closeRS(rs);
+                this.closePS(st);
             }
             catch (SQLException ex) {
                 PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
-        try {
-            for (HashMap<String, Object> temp : stuff) {
-                DataAccess newData = typeTemplate.getInstance();
-                newData.load(temp);
-                datasets.add(newData);
-            }
-
-        }
-        catch (DatabaseAccessException dae) {
-            PBDatabaseAPI.logger().log(Level.WARNING, dae.getMessage(), dae);
-        }
+        return toRet;
     }
 
-    public void updateSchema(DataAccess schemaTemplate) throws DatabaseWriteException {
+    public void updateSchema(UpdateSchema query, Connection conn) throws DatabaseWriteException {
         PreparedStatement ps = null;
         ResultSet rs = null;
 
@@ -313,15 +344,15 @@ public class SQLiteDatabase extends Database {
             // First check if the table exists, if it doesn't we'll skip the rest
             // of this method since we're creating it fresh.
             DatabaseMetaData metadata = conn.getMetaData();
-            rs = metadata.getTables(null, null, schemaTemplate.getName(), null);
-            if (!rs.next()) {
-                createTable(schemaTemplate);
+            rs = metadata.getTables(null, null, query.from().getName(), null);
+            if (!rs.first()) {
+                this.createTable(conn, query.from());
             }
             else {
 
                 LinkedList<String> toRemove = new LinkedList<String>();
                 HashMap<String, Column> toAdd = new HashMap<String, Column>();
-                Iterator<Column> it = schemaTemplate.getTableLayout().iterator();
+                Iterator<Column> it = query.from().getTableLayout().iterator();
 
                 Column column;
                 while (it.hasNext()) {
@@ -329,7 +360,7 @@ public class SQLiteDatabase extends Database {
                     toAdd.put(column.columnName(), column);
                 }
 
-                for (String col : getColumnNames(schemaTemplate)) {
+                for (String col : this.getColumnNames(query.from())) {
                     if (!toAdd.containsKey(col)) {
                         toRemove.add(col);
                     }
@@ -339,267 +370,90 @@ public class SQLiteDatabase extends Database {
                 }
 
                 for (String name : toRemove) {
-                    deleteColumn(schemaTemplate.getName(), name);
+                    this.deleteColumn(conn, query.from().getName(), name);
                 }
                 for (Map.Entry<String, Column> entry : toAdd.entrySet()) {
-                    insertColumn(schemaTemplate.getName(), entry.getValue());
+                    this.insertColumn(conn, query.from().getName(), entry.getValue());
                 }
             }
         }
         catch (SQLException sqle) {
-            throw new DatabaseWriteException("Error updating SQLite schema: " + sqle.getMessage());
+            throw new DatabaseWriteException("Error updating MySQL schema: " + sqle.getMessage());
         }
         catch (DatabaseTableInconsistencyException dtie) {
-            PBDatabaseAPI.logger().log(Level.WARNING, "Error updating SQLite schema." + dtie.getMessage(), dtie);
+            PBDatabaseAPI.logger().log(Level.WARNING, "Error updating MySQL schema." + dtie.getMessage(), dtie);
         }
         finally {
-            closeRS(rs);
-            closePS(ps);
+            this.closeRS(rs);
+            this.closePS(ps);
         }
     }
 
-    public void createTable(DataAccess data) throws DatabaseWriteException {
-        PreparedStatement ps = null;
-
-        try {
-            StringBuilder fields = new StringBuilder();
-            HashMap<Column, Object> columns = data.toDatabaseEntryList();
-            Iterator<Column> it = columns.keySet().iterator();
-            Column column;
-            while (it.hasNext()) {
-                column = it.next();
-                fields.append("`").append(column.columnName()).append("` ");
-                if (column.columnType().equals(Column.ColumnType.PRIMARY) && column.autoIncrement() && column.dataType() == Column.DataType.INTEGER) {
-                    fields.append(" INTEGER PRIMARY KEY ASC");
-                    if (it.hasNext()) {
-                        fields.append(", ");
-                    }
-                    continue;
-                }
-                else {
-                    fields.append(getDataTypeSyntax(column.dataType()));
-                }
-
-                if (column.columnType() == Column.ColumnType.PRIMARY) {
-                    fields.append(" PRIMARY KEY");
-                }
-                if (column.autoIncrement()) {
-                    fields.append(" AUTOINCREMENT");
-                }
-                if (it.hasNext()) {
-                    fields.append(", ");
-                }
-            }
-            String state = "CREATE TABLE IF NOT EXISTS `" + data.getName() + "` (" + fields.toString() + ") ";
-            ps = conn.prepareStatement(state);
-            if (ps.execute()) {
-                PBDatabaseAPI.logger().log(Level.INFO, "Statment Executed!");
-            }
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException("Error creating SQLite table '" + data.getName() + "'. " + ex.getMessage());
-        }
-        catch (DatabaseTableInconsistencyException ex) {
-            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage() + " Error creating SQLite table '" + data.getName() + "'. ", ex);
-        }
-        finally {
-            closePS(ps);
-        }
-    }
-
-    public void insertColumn(String tableName, Column column) throws DatabaseWriteException {
-        PreparedStatement ps = null;
-
-        try {
-            if (column != null && !column.columnName().trim().equals("")) {
-                ps = conn.prepareStatement("ALTER TABLE `" + tableName + "` ADD `" + column.columnName() + "` " + getDataTypeSyntax(column.dataType()));
-                ps.execute();
-            }
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException("Error adding SQLite collumn: " + column.columnName());
-        }
-        finally {
-            closePS(ps);
-        }
-
-    }
-
-    public void deleteColumn(String tableName, String columnName) throws DatabaseWriteException {
-        PreparedStatement ps = null;
-
-        try {
-            if (columnName != null && !columnName.trim().equals("")) {
-                ps = conn.prepareStatement("ALTER TABLE `" + tableName + "` DROP `" + columnName + "`");
-                ps.execute();
-            }
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException("Error deleting SQLite collumn: " + columnName);
-        }
-        finally {
-            closePS(ps);
-        }
-    }
-
-    public boolean doesPrimaryKeyExist(DataAccess data, String primaryKey, Object value) throws DatabaseWriteException {
-        PreparedStatement ps = null;
-        boolean toRet = false;
-
-        try {
-            ps = conn.prepareStatement("SELECT * FROM `" + data.getName() + "` WHERE '" + primaryKey + "' = ?");
-            ps.setObject(1, convert(value));
-            toRet = ps.execute();
-
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException("Error checking Value for SQLite Primary "
-                    + "Key in Table `" + data.getName() + "` for key `" + primaryKey
-                    + "` and value '" + String.valueOf(value) + "'.");
-        }
-        finally {
-            closePS(ps);
-        }
-        return toRet;
-    }
-
-    public boolean doesEntryExist(DataAccess data) throws DatabaseWriteException {
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        boolean toRet = false;
-
-        try {
-            StringBuilder sb = new StringBuilder();
-            HashMap<Column, Object> columns = data.toDatabaseEntryList();
-            Iterator<Column> it = columns.keySet().iterator();
-
-            Column column;
-            while (it.hasNext()) {
-                column = it.next();
-                if (!column.autoIncrement()) {
-                    if (sb.length() > 0) {
-                        sb.append(" AND '").append(column.columnName());
-                    }
-                    else {
-                        sb.append("'").append(column.columnName());
-                    }
-                    sb.append("' = ?");
-                }
-            }
-            ps = conn.prepareStatement("SELECT * FROM `" + data.getName() + "` WHERE " + sb.toString());
-            it = columns.keySet().iterator();
-
-            int index = 1;
-            while (it.hasNext()) {
-                column = it.next();
-                if (!column.autoIncrement()) {
-                    ps.setObject(index, convert(columns.get(column)));
-                    index++;
-                }
-            }
-            rs = ps.executeQuery();
-            if (rs != null) {
-                toRet = rs.next();
-            }
-
-        }
-        catch (SQLException ex) {
-            throw new DatabaseWriteException(ex.getMessage() + " Error checking SQLite Entry Key in "
-                    + data.toString());
-        }
-        catch (DatabaseTableInconsistencyException ex) {
-            Logger.getLogger(SQLiteDatabase.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        finally {
-            closePS(ps);
-            closeRS(rs);
-        }
-        return toRet;
-    }
-
-    /**
-     * Safely Close a ResultSet.
-     *
-     * @param rs
-     *         ResultSet to close.
-     */
-    public void closeRS(ResultSet rs) {
-        if (rs != null) {
-            try {
-                // org.sqlite.RS doesn't have a isClosed()
-                rs.close();
-            }
-            catch (SQLException sqle) {
-                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing ResultSet in SQLite database.", sqle);
-            }
-        }
-    }
-
-    /**
-     * Safely Close a PreparedStatement.
-     *
-     * @param ps
-     *         PreparedStatement to close.
-     */
-    public void closePS(PreparedStatement ps) {
-        if (ps != null) {
-            try {
-                // org.sqlite.PrepStmt doesn't have isClosed()
-                ps.close();
-            }
-            catch (SQLException sqle) {
-                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing PreparedStatement in SQLite database.", sqle);
-            }
-        }
-    }
-
-    public ResultSet getResultSet(Connection conn, DataAccess data, String[] fieldNames, Object[] fieldValues, boolean limitOne) throws DatabaseReadException {
-        return this.getResultSet(conn, data.getName(), fieldNames, fieldValues, limitOne);
-    }
-
-    public ResultSet getResultSet(Connection conn, String tableName, String[] fieldNames, Object[] fieldValues, boolean limitOne) throws DatabaseReadException {
+    public ResultSet getResultSet(Connection conn, Select select) throws DatabaseReadException {
         PreparedStatement ps;
         ResultSet toRet = null;
 
         try {
-            if (fieldNames.length > 0) {
+            if (select.getWheres().size() > 0) {
                 StringBuilder sb = new StringBuilder();
 
-                for (int i = 0; i < fieldNames.length && i < fieldValues.length; i++) {
-                    sb.append("`").append(fieldNames[i]);
-                    if (i + 1 < fieldNames.length) {
-                        sb.append("`=? AND ");
-                    }
-                    else {
-                        sb.append("`=?");
-                    }
+                for (QueryEntry entry : select.getWheres()) {
+                    sb.append(" AND `").append(entry.getColumnName()).append("`=?");
                 }
-                if (limitOne) {
-                    sb.append(" LIMIT 1");
-                }
-                ps = conn.prepareStatement("SELECT * FROM `" + tableName + "` WHERE " + sb.toString());
-                for (int i = 0; i < fieldNames.length && i < fieldValues.length; i++) {
-                    ps.setObject(i + 1, convert(fieldValues[i]));
+                sb.delete(0, 5);
+
+                ps = conn.prepareStatement(String.format(SELECT, select.from().getName(), sb, select.limit()));
+
+                int i = 0;
+                for (QueryEntry entry : select.getWheres()) {
+                    ps.setObject(i + 1, JDBCHelper.convert(entry.getColumnValue()));
+                    i++;
                 }
                 toRet = ps.executeQuery();
             }
             else {
-                if (limitOne) {
-                    ps = conn.prepareStatement("SELECT * FROM `" + tableName + "` LIMIT 1");
-                }
-                else {
-                    ps = conn.prepareStatement("SELECT * FROM `" + tableName + "`");
-                }
+                ps = conn.prepareStatement(String.format(SELECT_ALL, select.from().getName(), select.limit()));
 
                 toRet = ps.executeQuery();
             }
         }
         catch (SQLException ex) {
-            throw new DatabaseReadException("Error Querying SQLite ResultSet in "
-                    + tableName);
+            throw new DatabaseReadException("Error Querying MySQL ResultSet in "
+                    + select.from().getName());
         }
         catch (Exception ex) {
-            Logger.getLogger(SQLiteDatabase.class.getName()).log(Level.SEVERE, null, ex);
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return toRet;
+    }
+
+    public boolean doesEntryExist(Connection conn, DataAccess data) throws DatabaseWriteException {
+//        Connection conn = pool.getConnectionFromPool();
+        ResultSet rs = null;
+        boolean toRet = false;
+
+        try {
+            HashMap<Column, Object> columns = data.toDatabaseEntryList();
+            Select select = (Select)Query.Type.SELECT.newQuery();
+            select.from(data).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
+            }
+
+            rs = this.getResultSet(conn, select);
+            toRet = rs.next();
+        }
+        catch (SQLException ex) {
+            throw new DatabaseWriteException(ex.getMessage() + " Error checking MySQL Entry Key in "
+                    + data.toString());
+        }
+        catch (DatabaseTableInconsistencyException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (DatabaseReadException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        finally {
+            this.closeRS(rs);
         }
         return toRet;
     }
@@ -613,10 +467,9 @@ public class SQLiteDatabase extends Database {
 
         try {
             statement = conn.createStatement();
-            resultSet = statement.executeQuery("SELECT * FROM '" + data.getName() + "'");
-            ResultSetMetaData rsMeta = resultSet.getMetaData();
-            for (int index = 1; index <= rsMeta.getColumnCount(); index++) {
-                columnName = rsMeta.getColumnLabel(index);
+            resultSet = statement.executeQuery("SHOW COLUMNS FROM `" + data.getName() + "`");
+            while (resultSet.next()) {
+                columnName = resultSet.getString("field");
                 columns.add(columnName);
             }
         }
@@ -624,196 +477,164 @@ public class SQLiteDatabase extends Database {
             PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
         }
         finally {
-            closeRS(resultSet);
+            this.closeRS(resultSet);
             if (statement != null) {
                 try {
                     statement.close();
                 }
                 catch (SQLException ex) {
-                    Logger.getLogger(SQLiteDatabase.class.getName()).log(Level.SEVERE, null, ex);
+                    Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
                 }
             }
         }
         return columns;
     }
 
-    public String getDataTypeSyntax(Column.DataType type) {
-        switch (type) {
-            case BYTE:
-                return "INT";
-            case INTEGER:
-                return "INT";
-            case FLOAT:
-                return "DOUBLE";
-            case DOUBLE:
-                return "DOUBLE";
-            case LONG:
-                return "BIGINT";
-            case SHORT:
-                return "TINYINT";
-            case STRING:
-                return "TEXT";
-            case BOOLEAN:
-                return "BOOLEAN";
+    public void createTable(Connection conn, DataAccess data) throws DatabaseWriteException {
+        PreparedStatement ps = null;
+
+        try {
+            StringBuilder fields = new StringBuilder();
+            HashMap<Column, Object> columns = data.toDatabaseEntryList();
+            Iterator<Column> it = columns.keySet().iterator();
+            String primary = null;
+
+            Column column;
+            while (it.hasNext()) {
+                column = it.next();
+                fields.append("`").append(column.columnName()).append("` ");
+                fields.append(JDBCHelper.getDataTypeSyntax(column.dataType()));
+                if (column.autoIncrement()) {
+                    fields.append(" AUTO_INCREMENT");
+                }
+                if (column.columnType().equals(Column.ColumnType.PRIMARY)) {
+                    primary = column.columnName();
+                }
+                if (it.hasNext()) {
+                    fields.append(", ");
+                }
+            }
+            if (primary != null) {
+                fields.append(", PRIMARY KEY(`").append(primary).append("`)");
+            }
+            ps = conn.prepareStatement(String.format(CREATE_TABLE, data.getName(), fields.toString()));
+            ps.execute();
         }
-        return "";
+        catch (SQLException ex) {
+            throw new DatabaseWriteException("Error creating MySQL table '" + data.getName() + "'. " + ex.getMessage());
+        }
+        catch (DatabaseTableInconsistencyException ex) {
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage() + " Error creating MySQL table '" + data.getName() + "'. ", ex);
+        }
+        finally {
+            this.closePS(ps);
+        }
     }
 
-    public int getJDBCDataType(Column.DataType type) {
-        switch (type) {
-            case BYTE:
-                return Types.INTEGER;
-            case INTEGER:
-                return Types.INTEGER;
-            case FLOAT:
-                return Types.DOUBLE;
-            case DOUBLE:
-                return Types.DOUBLE;
-            case LONG:
-                return Types.BIGINT;
-            case SHORT:
-                return Types.TINYINT;
-            case STRING:
-                return Types.BLOB;
-            case BOOLEAN:
-                return Types.TINYINT;
-        }
-        return 0;
-    }
+    public void insertColumn(Connection conn, String tableName, Column column) throws DatabaseWriteException {
+        PreparedStatement ps = null;
 
-    public int getJDBCDataType(Object o) {
-        if (o instanceof Byte) {
-            return Types.INTEGER;
-        }
-        else if (o instanceof Integer) {
-            return Types.INTEGER;
-        }
-        else if (o instanceof Float) {
-            return Types.DOUBLE;
-        }
-        else if (o instanceof Double) {
-            return Types.DOUBLE;
-        }
-        else if (o instanceof Long) {
-            return Types.BIGINT;
-        }
-        else if (o instanceof Short) {
-            return Types.TINYINT;
-        }
-        else if (o instanceof String) {
-            return Types.BLOB;
-        }
-        else if (o instanceof Boolean) {
-            return Types.TINYINT;
-        }
-        return 0;
-    }
-
-    /**
-     * Replaces '*' character with '\\*' if the Object is a String.
-     *
-     * @param o
-     *
-     * @return
-     */
-    private Object convert(Object o) {
-        if (o instanceof String && ((String) o).contains("*")) {
-            ((String) o).replace("*", "\\*");
-        }
-        return o;
-    }
-
-    /**
-     * Gets a Java List representation from the SQLite String.
-     *
-     * @param type
-     * @param field
-     *
-     * @return
-     */
-    private List<Comparable<?>> getList(Column.DataType type, String field) {
-        List<Comparable<?>> list = new ArrayList<Comparable<?>>();
-        if (field == null) {
-            return list;
-        }
-        switch (type) {
-            case BYTE:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Byte.valueOf(s));
-                }
-                break;
-            case INTEGER:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Integer.valueOf(s));
-                }
-                break;
-            case FLOAT:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Float.valueOf(s));
-                }
-                break;
-            case DOUBLE:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Double.valueOf(s));
-                }
-                break;
-            case LONG:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Long.valueOf(s));
-                }
-                break;
-            case SHORT:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Short.valueOf(s));
-                }
-                break;
-            case STRING:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(s);
-                }
-                break;
-            case BOOLEAN:
-                for (String s : field.split(LIST_REGEX)) {
-                    list.add(Boolean.valueOf(s));
-                }
-                break;
-        }
-        return list;
-    }
-
-    /**
-     * Get the database entry for a Java List.
-     *
-     * @param list
-     *
-     * @return a string representation of the passed list.
-     */
-    public String getString(List<?> list) {
-        StringBuilder sb = new StringBuilder();
-        Iterator<?> it = list.iterator();
-        while (it.hasNext()) {
-            Object o = it.next();
-            sb.append(String.valueOf(o));
-            if (it.hasNext()) {
-                sb.append(LIST_REGEX);
+        try {
+            if (column != null && !column.columnName().trim().equals("")) {
+                ps = conn.prepareStatement(String.format(DELETE_COLUMN, tableName, column.columnName(), JDBCHelper.getDataTypeSyntax(column.dataType())));
+                ps.execute();
             }
         }
-        return sb.toString();
+        catch (SQLException ex) {
+            throw new DatabaseWriteException("Error adding MySQL collumn: " + column.columnName());
+        }
+        finally {
+            this.closePS(ps);
+        }
+
     }
 
-    @Override
-    public DataAccess[] query(Select query) throws DatabaseReadException {
-        throw new UnsupportedOperationException("Method 'query' in class 'SQLiteDatabase' is not supported yet.");
+    public void deleteColumn(Connection conn, String tableName, String columnName) throws DatabaseWriteException {
+        PreparedStatement ps = null;
+
+        try {
+            if (columnName != null && !columnName.trim().equals("")) {
+                ps = conn.prepareStatement(String.format(DELETE_COLUMN, tableName, columnName));
+                ps.execute();
+            }
+        }
+        catch (SQLException ex) {
+            throw new DatabaseWriteException("Error deleting MySQL collumn: " + columnName);
+        }
+        finally {
+            this.closePS(ps);
+        }
     }
 
-    @Override
-    public void executeQueries() throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'executeQueries' in class 'SQLiteDatabase' is not supported yet.");
+    public Select getSelectFromWhere(Where where) {
+        Select select = null;
+        try {
+            HashMap<Column, Object> columns = where.from().toDatabaseEntryList();
+            select = (Select)Query.Type.SELECT.newQuery();
+            select.from(where.from()).limit(1);
+            for (Column c : columns.keySet()) {
+                select.where(c.columnName(), columns.get(c.columnName()));
+            }
+        } catch (DatabaseTableInconsistencyException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return select;
     }
 
-    @Override
-    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'updateSchema' in class 'SQLiteDatabase' is not supported yet.");
+    /**
+     * Safely Close a ResultSet.
+     *
+     * @param rs
+     *         ResultSet to close.
+     */
+    public void closeRS(ResultSet rs) {
+        if (rs != null) {
+            try {
+                if (!rs.isClosed()) {
+                    rs.close();
+                }
+            }
+            catch (SQLException sqle) {
+                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing ResultSet in MySQL database.", sqle);
+            }
+        }
     }
 
+    /**
+     * Safely Close a PreparedStatement.
+     *
+     * @param ps
+     *         PreparedStatement to close.
+     */
+    public void closePS(Statement ps) {
+        if (ps != null) {
+            try {
+                if (!ps.isClosed()) {
+                    ps.close();
+                }
+            }
+            catch (SQLException sqle) {
+                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing PreparedStatement in MySQL database.", sqle);
+            }
+        }
+    }
+
+    /**
+     * Safely Close a PreparedStatement.
+     *
+     * @param ps
+     *         PreparedStatement to close.
+     */
+    public void closePS(ResultSet rs) {
+        if (rs != null) {
+            try {
+                if (!rs.isClosed()) {
+                    this.closePS(rs.getStatement());
+                }
+            }
+            catch (SQLException sqle) {
+                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing PreparedStatement in MySQL database.", sqle);
+            }
+        }
+    }
 }

@@ -26,6 +26,11 @@ import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
 import net.playblack.pbdbapi.queries.Delete;
 import net.playblack.pbdbapi.queries.Insert;
 import net.playblack.pbdbapi.queries.Query;
+import static net.playblack.pbdbapi.queries.Query.Type.DELETE;
+import static net.playblack.pbdbapi.queries.Query.Type.INSERT;
+import static net.playblack.pbdbapi.queries.Query.Type.SELECT;
+import static net.playblack.pbdbapi.queries.Query.Type.UPDATE;
+import static net.playblack.pbdbapi.queries.Query.Type.UPDATE_SCHEMA;
 import net.playblack.pbdbapi.queries.QueryEntry;
 import net.playblack.pbdbapi.queries.Select;
 import net.playblack.pbdbapi.queries.Update;
@@ -65,8 +70,54 @@ public class MySQLDatabase extends Database {
         return instance;
     }
 
-    public void query(Query query, Connection conn) throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'query' in class 'MySQLDatabase' is not supported yet.");
+    @Override
+    public DataAccess[] query(Select query) throws DatabaseReadException {
+        Connection conn = pool.getConnectionFromPool();
+        List<DataAccess> toRet = this.load(query, conn);
+        pool.returnConnectionToPool(conn);
+        return toRet.toArray(new DataAccess[toRet.size()]);
+    }
+
+    @Override
+    public void executeQueries() throws DatabaseWriteException {
+        try {
+            Connection conn = pool.getConnectionFromPool();
+            conn.setAutoCommit(false);
+            synchronized (lock) {
+                for (Query query : super.queue) {
+                    switch(query.getType()) {
+                        case DELETE:
+                            this.remove((Delete) query, conn);
+                            break;
+                        case INSERT:
+                            this.insert((Insert) query, conn);
+                            break;
+                        case UPDATE:
+                            this.update((Update) query, conn);
+                            break;
+                        case SELECT:
+                            // Aren't capable of returning anything, so just skip it.
+                            break;
+                        case UPDATE_SCHEMA:
+                            this.updateSchema((UpdateSchema) query, conn);
+                            break;
+                    }
+                }
+            }
+            conn.setAutoCommit(true);
+            pool.returnConnectionToPool(conn);
+        } catch (SQLException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    @Override
+    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
+        Connection conn = pool.getConnectionFromPool();
+        for (Query query : udpateSchema) {
+            this.updateSchema((UpdateSchema) query, conn);
+        }
+        pool.returnConnectionToPool(conn);
     }
 
     public void insert(Insert query, Connection conn) throws DatabaseWriteException {
@@ -76,8 +127,7 @@ public class MySQLDatabase extends Database {
         PreparedStatement ps = null;
 
         try {
-            StringBuilder fields = new StringBuilder();
-            StringBuilder values = new StringBuilder();
+            StringBuilder fields = new StringBuilder(), values = new StringBuilder();
             HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
             Iterator<Column> it = columns.keySet().iterator();
 
@@ -103,7 +153,9 @@ public class MySQLDatabase extends Database {
                     if (c.isList()) {
                         ps.setObject(i, JDBCHelper.getListString((List<?>) columns.get(c)));
                     }
-                    ps.setObject(i, JDBCHelper.convert(columns.get(c)));
+                    else {
+                        ps.setObject(i, JDBCHelper.convert(columns.get(c)));
+                    }
                     i++;
                 }
             }
@@ -131,11 +183,7 @@ public class MySQLDatabase extends Database {
 
         try {
             HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
-            Select select = (Select)Query.Type.SELECT.newQuery();
-            select.from(query.from()).limit(1);
-            for (Column c : columns.keySet()) {
-                select.where(c.columnName(), columns.get(c.columnName()));
-            }
+            Select select = this.getSelectFromWhere(query);
 
             rs = this.getResultSet(conn, select);
 
@@ -185,11 +233,7 @@ public class MySQLDatabase extends Database {
 
         try {
             HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
-            Select select = (Select)Query.Type.SELECT.newQuery();
-            select.from(query.from()).limit(1);
-            for (Column c : columns.keySet()) {
-                select.where(c.columnName(), columns.get(c.columnName()));
-            }
+            Select select = this.getSelectFromWhere(query);
             rs = this.getResultSet(conn, select);
 
             if (rs != null) {
@@ -220,20 +264,17 @@ public class MySQLDatabase extends Database {
         }
     }
 
-    public DataAccess load(Select query, Connection conn) throws DatabaseReadException {
+    public List<DataAccess> load(Select query, Connection conn) throws DatabaseReadException {
+        List<DataAccess> toRet = new ArrayList<DataAccess>();
         ResultSet rs = null;
         HashMap<String, Object> dataSet = new HashMap<String, Object>();
         try {
-            HashMap<Column, Object> columns = query.from().toDatabaseEntryList();
-            Select select = (Select)Query.Type.SELECT.newQuery();
-            select.from(query.from()).limit(1);
-            for (Column c : columns.keySet()) {
-                select.where(c.columnName(), columns.get(c.columnName()));
-            }
-            rs = this.getResultSet(conn, select);
+            rs = this.getResultSet(conn, query);
 
             if (rs != null) {
-                if (rs.next()) {
+                while (rs.next()) {
+
+
                     for (Column column : query.from().getTableLayout()) {
                         if (column.isList()) {
                             dataSet.put(column.columnName(), JDBCHelper.getList(column.dataType(), rs.getString(column.columnName())));
@@ -245,6 +286,12 @@ public class MySQLDatabase extends Database {
                             dataSet.put(column.columnName(), rs.getObject(column.columnName()));
                         }
                     }
+
+                    DataAccess access = null;
+                    access = query.from().getClass().newInstance();
+                    access.load(dataSet);
+                    toRet.add(access);
+                    dataSet.clear(); // Don't forget to clear the hashmap for the next dataset :)
                 }
             }
         }
@@ -257,6 +304,15 @@ public class MySQLDatabase extends Database {
         catch (DatabaseTableInconsistencyException dtie) {
             PBDatabaseAPI.logger().log(Level.WARNING, dtie.getMessage(), dtie);
         }
+        catch (DatabaseAccessException ex) {
+            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
+        }
+        catch (InstantiationException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        catch (IllegalAccessException ex) {
+            Logger.getLogger(MySQLDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
         finally {
             try {
                 PreparedStatement st = rs != null && rs.getStatement() instanceof PreparedStatement ? (PreparedStatement) rs.getStatement() : null;
@@ -267,13 +323,7 @@ public class MySQLDatabase extends Database {
                 PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
             }
         }
-        try {
-            query.from().load(dataSet);
-        }
-        catch (DatabaseAccessException ex) {
-            PBDatabaseAPI.logger().log(Level.WARNING, ex.getMessage(), ex);
-        }
-        return query.from();
+        return toRet;
     }
 
     public void updateSchema(UpdateSchema query, Connection conn) throws DatabaseWriteException {
@@ -508,7 +558,7 @@ public class MySQLDatabase extends Database {
         }
     }
 
-    public Select getSelect(Where where) {
+    public Select getSelectFromWhere(Where where) {
         Select select = null;
         try {
             HashMap<Column, Object> columns = where.from().toDatabaseEntryList();
@@ -548,7 +598,7 @@ public class MySQLDatabase extends Database {
      * @param ps
      *         PreparedStatement to close.
      */
-    public void closePS(PreparedStatement ps) {
+    public void closePS(Statement ps) {
         if (ps != null) {
             try {
                 if (!ps.isClosed()) {
@@ -561,19 +611,22 @@ public class MySQLDatabase extends Database {
         }
     }
 
-    @Override
-    public DataAccess[] query(Select query) throws DatabaseReadException {
-        throw new UnsupportedOperationException("Method 'query' in class 'MySQLDatabase' is not supported yet.");
+    /**
+     * Safely Close a PreparedStatement.
+     *
+     * @param ps
+     *         PreparedStatement to close.
+     */
+    public void closePS(ResultSet rs) {
+        if (rs != null) {
+            try {
+                if (!rs.isClosed()) {
+                    this.closePS(rs.getStatement());
+                }
+            }
+            catch (SQLException sqle) {
+                PBDatabaseAPI.logger().log(Level.WARNING, "Error closing PreparedStatement in MySQL database.", sqle);
+            }
+        }
     }
-
-    @Override
-    public void executeQueries() throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'executeQueries' in class 'MySQLDatabase' is not supported yet.");
-    }
-
-    @Override
-    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'updateSchema' in class 'MySQLDatabase' is not supported yet.");
-    }
-
 }
