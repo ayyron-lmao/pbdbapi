@@ -10,6 +10,8 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import net.playblack.pbdbapi.Column;
 import net.playblack.pbdbapi.Column.DataType;
 import net.playblack.pbdbapi.DataAccess;
@@ -18,7 +20,17 @@ import net.playblack.pbdbapi.exceptions.DatabaseAccessException;
 import net.playblack.pbdbapi.exceptions.DatabaseReadException;
 import net.playblack.pbdbapi.exceptions.DatabaseTableInconsistencyException;
 import net.playblack.pbdbapi.exceptions.DatabaseWriteException;
+import net.playblack.pbdbapi.queries.Delete;
+import net.playblack.pbdbapi.queries.Insert;
+import net.playblack.pbdbapi.queries.Query;
+import static net.playblack.pbdbapi.queries.Query.Type.DELETE;
+import static net.playblack.pbdbapi.queries.Query.Type.INSERT;
+import static net.playblack.pbdbapi.queries.Query.Type.SELECT;
+import static net.playblack.pbdbapi.queries.Query.Type.UPDATE;
+import static net.playblack.pbdbapi.queries.Query.Type.UPDATE_SCHEMA;
+import net.playblack.pbdbapi.queries.QueryEntry;
 import net.playblack.pbdbapi.queries.Select;
+import net.playblack.pbdbapi.queries.Update;
 import net.playblack.pbdbapi.queries.UpdateSchema;
 import org.jdom2.Content;
 import org.jdom2.Document;
@@ -52,7 +64,46 @@ public class XmlDatabase extends Database {
 
     private SAXBuilder fileBuilder = new SAXBuilder();
 
-    public void insert(DataAccess data) throws DatabaseWriteException {
+    
+    @Override
+    public DataAccess[] query(Select query) throws DatabaseReadException {
+        return this.load(query);
+    }
+
+    @Override
+    public void executeQueries() throws DatabaseWriteException {
+        synchronized (lock) {
+            for (Query query : super.queue) {
+                switch(query.getType()) {
+                    case DELETE:
+                        this.delete((Delete) query);
+                        break;
+                    case INSERT:
+                        this.insert((Insert) query);
+                        break;
+                    case UPDATE:
+                        this.update((Update) query);
+                        break;
+                    case SELECT:
+                        // Aren't capable of returning anything, so just skip it.
+                        break;
+                    case UPDATE_SCHEMA:
+                        this.updateSchema((UpdateSchema) query);
+                        break;
+                }
+            }
+        }
+    }
+
+    @Override
+    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
+        for (UpdateSchema schema : udpateSchema) {
+            this.updateSchema(schema);
+        }
+    }
+    
+    public void insert(Insert query) throws DatabaseWriteException {
+        DataAccess data = query.from();
         File file = new File("db/" + data.getName() + ".xml");
 
         if (!file.exists()) {
@@ -82,77 +133,20 @@ public class XmlDatabase extends Database {
             throw new DatabaseWriteException(e.getMessage(), e);
         }
     }
-
-    public void load(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
-        File file = new File("db/" + data.getName() + ".xml");
-
-        if (!file.exists()) {
-            throw new DatabaseReadException("Table " + data.getName() + " does not exist!");
-        }
-        if (fieldNames.length != fieldValues.length) {
-            throw new DatabaseReadException("Field and Value field lenghts are inconsistent!");
-        }
-        try {
-            FileInputStream in = new FileInputStream(file);
-            Document table = fileBuilder.build(in);
-            in.close();
-
-            loadData(data, table, fieldNames, fieldValues);
-        }
-        catch (JDOMException e) {
-            throw new DatabaseReadException(e.getMessage(), e);
-        }
-        catch (IOException e) {
-            throw new DatabaseReadException(e.getMessage(), e);
-        }
-        catch (DatabaseAccessException e) {
-            throw new DatabaseReadException(e.getMessage(), e);
-        }
-    }
-
-    public void loadAll(DataAccess typeTemplate, List<DataAccess> datasets, String[] fieldNames, Object[] fieldValues) throws DatabaseReadException {
-        File file = new File("db/" + typeTemplate.getName() + ".xml");
-
-        if (!file.exists()) {
-            throw new DatabaseReadException("Table " + typeTemplate.getName() + " does not exist!");
-        }
-        if (fieldNames.length != fieldValues.length) {
-            throw new DatabaseReadException("Field and Value field lenghts are inconsistent!");
-        }
-        try {
-            FileInputStream in = new FileInputStream(file);
-            Document table = fileBuilder.build(in);
-            in.close();
-
-            loadAllData(typeTemplate, datasets, table, fieldNames, fieldValues);
-        }
-        catch (JDOMException e) {
-            throw new DatabaseReadException(e.getMessage(), e);
-        }
-        catch (IOException e) {
-            throw new DatabaseReadException(e.getMessage(), e);
-        }
-        catch (DatabaseAccessException e) {
-            throw new DatabaseReadException(e.getMessage(), e);
-        }
-
-    }
-
-    public void update(DataAccess data, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
+    
+    public void update(Update query) throws DatabaseWriteException {
+        DataAccess data = query.from();
         File file = new File("db/" + data.getName() + ".xml");
 
         if (!file.exists()) {
             throw new DatabaseWriteException("Table " + data.getName() + " does not exist!");
         }
-        if (fieldNames.length != fieldValues.length) {
-            throw new DatabaseWriteException("Field and Value field lenghts are inconsistent!");
-        }
         try {
             FileInputStream in = new FileInputStream(file);
             Document table = fileBuilder.build(in);
             in.close();
 
-            updateData(file, table, data, fieldNames, fieldValues);
+            updateData(file, table, data, query.getWheres());
         }
         catch (JDOMException e) {
             throw new DatabaseWriteException(e.getMessage(), e);
@@ -164,22 +158,19 @@ public class XmlDatabase extends Database {
             throw new DatabaseWriteException(e.getMessage(), e);
         }
     }
-
-    public void remove(String tableName, String[] fieldNames, Object[] fieldValues) throws DatabaseWriteException {
-        File file = new File("db/" + tableName + ".xml");
+    
+    public void delete(Delete query) throws DatabaseWriteException {
+        File file = new File("db/" + query.from().getName() + ".xml");
 
         if (!file.exists()) {
-            throw new DatabaseWriteException("Table " + tableName + " does not exist!");
-        }
-        if (fieldNames.length != fieldValues.length) {
-            throw new DatabaseWriteException("Field and Value field lenghts are inconsistent!");
+            throw new DatabaseWriteException("Table " + query.from().getName() + " does not exist!");
         }
         try {
             FileInputStream in = new FileInputStream(file);
             Document table = fileBuilder.build(in);
             in.close();
 
-            removeData(file, table, fieldNames, fieldValues);
+            removeData(file, table, query.getWheres());
         }
         catch (JDOMException e) {
             throw new DatabaseWriteException(e.getMessage(), e);
@@ -188,14 +179,39 @@ public class XmlDatabase extends Database {
             throw new DatabaseWriteException(e.getMessage(), e);
         }
     }
+    
+    public DataAccess[] load(Select query) throws DatabaseReadException {
+        File file = new File("db/" + query.from().getName() + ".xml");
+        DataAccess[] toRet = null;
+        if (!file.exists()) {
+            throw new DatabaseReadException("Table " + query.from().getName() + " does not exist!");
+        }
+        try {
+            FileInputStream in = new FileInputStream(file);
+            Document table = fileBuilder.build(in);
+            in.close();
 
-    public void updateSchema(DataAccess data) throws DatabaseWriteException {
-        File file = new File("db/" + data.getName() + ".xml");
+            toRet = loadData(query.from(), table, query.getWheres());
+        }
+        catch (JDOMException e) {
+            throw new DatabaseReadException(e.getMessage(), e);
+        }
+        catch (IOException e) {
+            throw new DatabaseReadException(e.getMessage(), e);
+        }
+        catch (DatabaseAccessException e) {
+            throw new DatabaseReadException(e.getMessage(), e);
+        }
+        return toRet;
+    }
+    
+    public void updateSchema(UpdateSchema schema) throws DatabaseWriteException {
+        File file = new File("db/" + schema.from().getName() + ".xml");
 
         if (!file.exists()) {
             try {
                 file.createNewFile();
-                initFile(file, data.getName());
+                initFile(file, schema.from().getName());
             }
             catch (IOException e) {
                 throw new DatabaseWriteException(e.getMessage(), e);
@@ -206,7 +222,7 @@ public class XmlDatabase extends Database {
             Document table = fileBuilder.build(in);
             in.close();
 
-            HashSet<Column> tableLayout = data.getTableLayout();
+            HashSet<Column> tableLayout = schema.from().getTableLayout();
 
             for (Element element : table.getRootElement().getChildren()) {
                 addFields(element, tableLayout);
@@ -340,22 +356,22 @@ public class XmlDatabase extends Database {
      *
      * @throws DatabaseWriteException
      */
-    private void updateData(File file, Document table, DataAccess data, String[] fields, Object[] values) throws IOException, DatabaseTableInconsistencyException, DatabaseWriteException {
+    private void updateData(File file, Document table, DataAccess data, List<QueryEntry> entries) throws IOException, DatabaseTableInconsistencyException, DatabaseWriteException {
         boolean hasUpdated = false;
         for (Element element : table.getRootElement().getChildren()) {
 
             int equalFields = 0;
 
-            for (int i = 0; i < fields.length; ++i) {
-                Element child = element.getChild(fields[i]);
+            for (QueryEntry e : entries) {
+                Element child = element.getChild(e.getColumnName());
 
                 if (child != null) {
-                    if (child.getText().equals(String.valueOf(values[i]))) {
+                    if (child.getText().equals(String.valueOf(e.getColumnValue()))) {
                         equalFields++;
                     }
                 }
             }
-            if (equalFields != fields.length) {
+            if (equalFields != entries.size()) {
                 continue; // Not the entry we're looking for
             }
 
@@ -384,25 +400,25 @@ public class XmlDatabase extends Database {
         }
         else {
             // No fields found, that means it is a new entry
-            insert(data);
+            insert(this.insert().from(data));
         }
     }
 
-    private void removeData(File file, Document table, String[] fields, Object[] values) throws IOException {
+    private void removeData(File file, Document table, List<QueryEntry> entries) throws IOException {
         ArrayList<Element> toremove = new ArrayList<Element>();
         for (Element element : table.getRootElement().getChildren()) {
             int equalFields = 0;
 
-            for (int i = 0; i < fields.length; ++i) {
-                Element child = element.getChild(fields[i]);
+            for (QueryEntry e : entries) {
+                Element child = element.getChild(e.getColumnName());
 
                 if (child != null) {
-                    if (child.getText().equals(String.valueOf(values[i]))) {
+                    if (child.getText().equals(String.valueOf(e.getColumnValue()))) {
                         equalFields++;
                     }
                 }
             }
-            if (equalFields != fields.length) {
+            if (equalFields != entries.size()) {
                 continue; // Not the entry we're looking for
             }
             // table.getRootElement().removeContent(element);
@@ -414,20 +430,21 @@ public class XmlDatabase extends Database {
         write(file.getPath(), table);
     }
 
-    private void loadData(DataAccess data, Document table, String[] fields, Object[] values) throws DatabaseAccessException {
+    private DataAccess[] loadData(DataAccess data, Document table, List<QueryEntry> entries) throws DatabaseAccessException {
+        List<DataAccess> toRet = new ArrayList<DataAccess>();
         for (Element element : table.getRootElement().getChildren()) {
             int equalFields = 0;
 
-            for (int i = 0; i < fields.length; ++i) {
-                Element child = element.getChild(fields[i]);
+            for (QueryEntry e : entries) {
+                Element child = element.getChild(e.getColumnName());
 
                 if (child != null) {
-                    if (child.getText().equals(String.valueOf(values[i]))) {
+                    if (child.getText().equals(String.valueOf(e.getColumnValue()))) {
                         equalFields++;
                     }
                 }
             }
-            if (equalFields != fields.length) {
+            if (equalFields != entries.size()) {
                 continue; // Not the entry we're looking for
             }
             HashMap<String, Object> dataSet = new HashMap<String, Object>();
@@ -435,9 +452,15 @@ public class XmlDatabase extends Database {
                 DataType type = DataType.fromString(child.getAttributeValue("data-type"));
                 addTypeToMap(child, dataSet, type);
             }
-            data.load(dataSet);
-            return;
+            try {
+                data.getClass().newInstance().load(dataSet);
+            } catch (InstantiationException ex) {
+                Logger.getLogger(XmlDatabase.class.getName()).log(Level.SEVERE, null, ex);
+            } catch (IllegalAccessException ex) {
+                Logger.getLogger(XmlDatabase.class.getName()).log(Level.SEVERE, null, ex);
+            }
         }
+        return toRet.toArray(new DataAccess[toRet.size()]);
     }
 
     private void loadAllData(DataAccess template, List<DataAccess> datasets, Document table, String[] fields, Object[] values) throws DatabaseAccessException {
@@ -732,19 +755,5 @@ public class XmlDatabase extends Database {
         }
     }
 
-    @Override
-    public DataAccess[] query(Select query) throws DatabaseReadException {
-        throw new UnsupportedOperationException("Method 'query' in class 'XmlDatabase' is not supported yet.");
-    }
-
-    @Override
-    public void executeQueries() throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'executeQueries' in class 'XmlDatabase' is not supported yet.");
-    }
-
-    @Override
-    public void updateSchema(UpdateSchema... udpateSchema) throws DatabaseWriteException {
-        throw new UnsupportedOperationException("Method 'updateSchema' in class 'XmlDatabase' is not supported yet.");
-    }
 
 }
